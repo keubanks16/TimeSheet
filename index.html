@@ -604,7 +604,14 @@ else (function(){
     download(bytes,base+'.xlsx',type); toast('Excel file ready');
   }
   $('#btnExportAll').onclick=()=>exportExcel(sortedMonths());
-  $('#sExportJson').onclick=()=>{ download(JSON.stringify(state,null,1),`timesheet-backup-${todayIso()}.json`,'application/json'); toast('Backup saved'); };
+  $('#sExportJson').onclick=async()=>{
+    const name=`timesheet-backup-${todayIso()}.json`; const json=JSON.stringify(state,null,1);
+    const file=new File([json],name,{type:'application/json'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})&&/iPhone|iPad|Android/i.test(navigator.userAgent)){
+      try{ await navigator.share({files:[file],title:'Time Sheet backup'}); return; }catch(e){ if(e&&e.name==='AbortError') return; }
+    }
+    download(json,name,'application/json'); toast('Backup saved');
+  };
   $('#sImportBtn').onclick=()=>$('#sImportFile').click();
   $('#sImportFile').onchange=async ev=>{
     const f=ev.target.files[0]; ev.target.value=''; if(!f) return;
