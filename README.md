@@ -17,7 +17,8 @@ Phone-friendly hourly tracking app. Log each day's description, hours, miles and
   - two blank bordered rows, then a `TOTAL` row with `SUM()` formulas
   - same column widths and borders as the original workbook
 - **Import** a backup `.json` or an `.xlsx` in this layout (including the original workbook) — months are merged, duplicates skipped
-- Data is saved on the device (localStorage); use *Settings → Save backup* to keep a copy
+- **Cloud sync** — its own database (Cloudflare D1 behind a Worker in `worker/`), protected by a passcode; connect your phone and laptop and every change syncs both ways (see DEPLOYMENT.md)
+- Data is also cached on the device (localStorage); *Settings → Save backup* keeps a file copy
 - No dependencies, works offline, single `index.html`
 
 ## Hosting

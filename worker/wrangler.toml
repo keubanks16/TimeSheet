@@ -1,0 +1,9 @@
+name = "timesheet"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "timesheet"
+database_id = "77f69316-69d3-466e-bf7c-6a4a6f9ca4cc"
