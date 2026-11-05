@@ -79,6 +79,14 @@
   .presets button{border:1px solid var(--line);background:var(--soft);border-radius:999px;padding:6px 11px;font-size:13px;font-weight:600}
   .presets button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .hint{font-size:12px;color:var(--muted);margin:-6px 0 12px}
+  .sc{background:var(--soft);border-radius:12px;padding:10px 10px 2px;margin:-4px 0 14px}
+  .sc .sc-h{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:0 0 6px}
+  .sc .sc-h small{text-transform:none;letter-spacing:0;font-weight:500}
+  .sc .presets{margin:0 0 10px}
+  .sc .presets button{background:var(--card)}
+  .sc .presets button.proj{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.3px}
+  .sc .presets button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .sc .presets button.dim{opacity:.55}
   .preset-row{display:grid;grid-template-columns:80px 1fr 40px;gap:6px;margin-bottom:6px}
   .preset-row input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;font-size:15px}
   .preset-row button{border:0;background:none;color:var(--danger);font-size:18px}
@@ -108,6 +116,14 @@
   <h2><span id="entryTitle">Add entry</span><button data-close>✕</button></h2>
   <label class="f">Date<input type="date" id="eDate"></label>
   <label class="f">Description<textarea id="eDesc" placeholder="BCs, 171F OAC and testing" autocapitalize="sentences"></textarea></label>
+  <div class="sc">
+    <div class="sc-h">Quick add <small>tap to add to the description</small></div>
+    <div class="presets" id="scTasks"></div>
+    <div class="sc-h">Project <small>pick one, then a task below</small></div>
+    <div class="presets" id="scProjects"></div>
+    <div class="sc-h">Project task</div>
+    <div class="presets" id="scProjectTasks"></div>
+  </div>
   <div class="grid2">
     <label class="f">Hours<input type="number" id="eHours" inputmode="decimal" step="0.5" min="0" placeholder="8"></label>
     <label class="f">Miles<input type="number" id="eMiles" inputmode="decimal" step="1" min="0" placeholder="0"></label>
@@ -142,6 +158,11 @@
   <div class="sect">Mileage presets</div>
   <div id="presetList"></div>
   <button class="btn" id="sAddPreset" type="button">+ Add preset</button>
+  <div class="sect">Description shortcuts</div>
+  <p class="hint" style="margin-top:0">One per line. Project tasks get combined with the selected project number (e.g. "GDC171F OAC").</p>
+  <label class="f">Individual tasks<textarea id="sScTasks" autocapitalize="sentences" placeholder="GDC Meeting"></textarea></label>
+  <label class="f">Project numbers<textarea id="sScProjects" autocapitalize="characters" placeholder="GDC171F"></textarea></label>
+  <label class="f">Project tasks<textarea id="sScProjectTasks" autocapitalize="words" placeholder="OAC"></textarea></label>
   <div class="sect">Backup &amp; import</div>
   <div class="row">
     <button class="btn" id="sExportJson" type="button">Save backup (.json)</button>
@@ -404,12 +425,17 @@ else (function(){
   const KEY='timesheet.v1';
   const $=s=>document.querySelector(s);
   const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+  const defaultShortcuts=()=>({
+    tasks:['New BC system help','GDC Meeting','GSFIC PM Meeting'],
+    projects:['GDC171D','GDC171G','GDC171F','GDC171K','GDC177','GDC178D','GDC179E'],
+    projectTasks:['OAC','Site Meeting','Pay App Review','IR Review','Teams Meeting','Sub Site Walk','Page Turn','Fire Alarm Testing','Site Walk','Design Walk','GMP Review']
+  });
   const defaults=()=>({
-    settings:{ name:'Kollin Eubanks', rate:0.76, presets:[{miles:148,label:'Dodge SP'},{miles:168,label:'Wilcox SP'},{miles:74,label:'McEver'},{miles:88,label:'Rutledge SP'}] },
+    settings:{ name:'Kollin Eubanks', rate:0.76, presets:[{miles:148,label:'Dodge SP'},{miles:168,label:'Wilcox SP'},{miles:74,label:'McEver'},{miles:88,label:'Rutledge SP'}], shortcuts:defaultShortcuts() },
     months:[], current:null
   });
   let state=load();
-  function load(){ try{ const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.settings&&Array.isArray(s.months)) return s; }catch(e){} return defaults(); }
+  function load(){ try{ const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.settings&&Array.isArray(s.months)){ if(!s.settings.shortcuts) s.settings.shortcuts=defaultShortcuts(); return s; } }catch(e){} return defaults(); }
   function save(){ try{ localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){ toast('Could not save (storage full?)'); } }
   const money=n=>'$'+(Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmtNum=n=>Number.isInteger(n)?String(n):String(Math.round(n*100)/100);
@@ -486,6 +512,23 @@ else (function(){
     document.querySelectorAll('#milePresets button').forEach(b=>b.onclick=()=>{ const cur=$('#eMiles').value; $('#eMiles').value=Number(cur)===Number(b.dataset.miles)?'':b.dataset.miles; renderPresets($('#eMiles').value); });
   }
   $('#eMiles').addEventListener('input',()=>renderPresets($('#eMiles').value));
+
+  // description shortcuts
+  let selProject=null;
+  function appendDesc(text){
+    const ta=$('#eDesc'); const cur=ta.value.trim();
+    ta.value=cur?cur.replace(/[,\s]+$/,'')+', '+text:text;
+    ta.dispatchEvent(new Event('input'));
+  }
+  function renderShortcuts(){
+    const sc=state.settings.shortcuts||defaultShortcuts();
+    $('#scTasks').innerHTML=sc.tasks.map(t=>`<button type="button" data-t="${esc(t)}">${esc(t)}</button>`).join('')||'<span class="hint">None — add some in Settings</span>';
+    $('#scProjects').innerHTML=sc.projects.map(p=>`<button type="button" class="proj ${selProject===p?'on':''}" data-p="${esc(p)}">${esc(p)}</button>`).join('')||'<span class="hint">None — add some in Settings</span>';
+    $('#scProjectTasks').innerHTML=sc.projectTasks.map(t=>`<button type="button" class="${selProject?'':'dim'}" data-pt="${esc(t)}">${esc(t)}</button>`).join('')||'<span class="hint">None — add some in Settings</span>';
+    document.querySelectorAll('#scTasks button').forEach(b=>b.onclick=()=>appendDesc(b.dataset.t));
+    document.querySelectorAll('#scProjects button').forEach(b=>b.onclick=()=>{ selProject=selProject===b.dataset.p?null:b.dataset.p; renderShortcuts(); });
+    document.querySelectorAll('#scProjectTasks button').forEach(b=>b.onclick=()=>{ if(!selProject){ toast('Pick a project number first'); return; } appendDesc(`${selProject} ${b.dataset.pt}`); });
+  }
   document.querySelectorAll('#notePresets button').forEach(b=>b.onclick=()=>{ $('#eNote').value=$('#eNote').value===b.dataset.note?'':b.dataset.note; });
   function openEntry(id){
     const m=currentMonth(); editingId=id; const e=id?m.entries.find(x=>x.id===id):null;
@@ -493,7 +536,8 @@ else (function(){
     $('#eDate').value=e?(e.date||''):nextWorkDate(m);
     $('#eDesc').value=e?.desc||''; $('#eHours').value=e?.hours??''; $('#eMiles').value=e?.miles??''; $('#eNote').value=e?.note||'';
     $('#eDelete').style.display=e?'':'none'; renderPresets($('#eMiles').value);
-    openSheet('#entrySheet'); if(!e) setTimeout(()=>$('#eDesc').focus(),250);
+    selProject=null; renderShortcuts();
+    openSheet('#entrySheet');
   }
   $('#fab').onclick=()=>openEntry(null);
   $('#eSave').onclick=()=>{
@@ -532,9 +576,13 @@ else (function(){
     document.querySelectorAll('#presetList [data-del]').forEach(b=>b.onclick=()=>{ readPresetInputs(); state.settings.presets.splice(+b.dataset.del,1); renderPresetList(); });
   }
   function readPresetInputs(){ document.querySelectorAll('#presetList input').forEach(i=>{ const p=state.settings.presets[+i.dataset.i]; if(!p) return; p[i.dataset.k]=i.dataset.k==='miles'?Number(i.value)||0:i.value; }); }
-  $('#btnSettings').onclick=()=>{ $('#sName').value=state.settings.name||''; $('#sRate').value=state.settings.rate; renderPresetList(); openSheet('#settingsSheet'); };
+  const lines=v=>v.split('\n').map(s=>s.trim()).filter(Boolean);
+  $('#btnSettings').onclick=()=>{ $('#sName').value=state.settings.name||''; $('#sRate').value=state.settings.rate; renderPresetList();
+    const sc=state.settings.shortcuts||defaultShortcuts(); $('#sScTasks').value=sc.tasks.join('\n'); $('#sScProjects').value=sc.projects.join('\n'); $('#sScProjectTasks').value=sc.projectTasks.join('\n');
+    openSheet('#settingsSheet'); };
   $('#sAddPreset').onclick=()=>{ readPresetInputs(); state.settings.presets.push({miles:0,label:''}); renderPresetList(); };
-  $('#sSave').onclick=()=>{ readPresetInputs(); state.settings.name=$('#sName').value.trim(); state.settings.rate=Number($('#sRate').value)||0; state.settings.presets=state.settings.presets.filter(p=>p.miles>0||p.label); save(); closeSheets(); render(); toast('Settings saved'); };
+  $('#sSave').onclick=()=>{ readPresetInputs(); state.settings.name=$('#sName').value.trim(); state.settings.rate=Number($('#sRate').value)||0; state.settings.presets=state.settings.presets.filter(p=>p.miles>0||p.label);
+    state.settings.shortcuts={tasks:lines($('#sScTasks').value),projects:lines($('#sScProjects').value),projectTasks:lines($('#sScProjectTasks').value)}; save(); closeSheets(); render(); toast('Settings saved'); };
   $('#sWipe').onclick=()=>{ if(!confirm('Erase ALL months and entries on this device? Export a backup first if you need one.')) return; if(!confirm('Really erase everything?')) return; state=defaults(); save(); closeSheets(); render(); };
 
   // ---------- export / import ----------

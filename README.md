@@ -10,6 +10,7 @@ Phone-friendly hourly tracking app. Log each day's description, hours, miles and
 - Add / edit / delete daily entries (date, description, hours, miles, note)
 - One-tap mileage presets (Dodge SP 148, Wilcox SP 168, McEver 74, Rutledge SP 88) — editable in Settings
 - Note chips for the G column (Flyover, PTO, Holiday)
+- Description shortcuts: one-tap individual tasks, plus project-number + task chips that combine (tap **GDC171F**, then **OAC** → "GDC171F OAC"); all three lists editable in Settings
 - **Export to Excel** — all months stacked on one sheet, or a single month:
   - merged bold title row `<Name> HOURLY TRACKING <Month>`
   - columns B–G: Date (`m/d/yy`), Description, Hours, Miles, `=rate*Miles`, Note
