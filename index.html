@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Time Sheet</title>
+<style>
+  :root{
+    --bg:#f3f5f8; --card:#ffffff; --ink:#15202b; --muted:#5b6b7c; --line:#dde3ea;
+    --accent:#1f3a5f; --accent-ink:#ffffff; --soft:#e8eef6; --good:#1b7f4d; --danger:#b3261e;
+    --radius:14px; --shadow:0 1px 2px rgba(16,24,40,.06),0 4px 14px rgba(16,24,40,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f141a; --card:#171e27; --ink:#e8edf2; --muted:#93a1b1; --line:#2a3441;
+      --accent:#6ea8ff; --accent-ink:#0b1220; --soft:#1f2a38; --good:#4fc98a; --danger:#ff7b72;
+      --shadow:0 1px 2px rgba(0,0,0,.4); }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+
+  header{position:sticky;top:0;z-index:5;background:var(--accent);color:var(--accent-ink);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+  header h1{font-size:19px;margin:0;flex:1;letter-spacing:.2px}
+  header .sub{font-size:12px;opacity:.8;display:block;font-weight:400}
+  .iconbtn{background:rgba(255,255,255,.14);border:0;color:inherit;border-radius:10px;width:40px;height:40px;display:grid;place-items:center;font-size:18px}
+  @media (prefers-color-scheme:dark){ .iconbtn{background:rgba(0,0,0,.18)} }
+
+  main{padding:14px 14px calc(110px + env(safe-area-inset-bottom));max-width:760px;margin:0 auto}
+
+  .monthbar{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
+  .monthbar::-webkit-scrollbar{display:none}
+  .chip{white-space:nowrap;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+  .chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .chip.add{border-style:dashed}
+
+  .card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:12px}
+  .title{font-weight:700;font-size:15px;text-align:center;letter-spacing:.3px;text-transform:uppercase;margin:0 0 10px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .tot{background:var(--soft);border-radius:10px;padding:10px 8px;text-align:center}
+  .tot b{display:block;font-size:20px}
+  .tot span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+
+  .entry{display:grid;grid-template-columns:62px 1fr auto;gap:10px;padding:12px 0;border-bottom:1px solid var(--line);align-items:start;width:100%;background:none;border-left:0;border-right:0;border-top:0;text-align:left;color:inherit}
+  .entry:last-child{border-bottom:0}
+  .entry .d{font-weight:700;font-size:14px;line-height:1.2}
+  .entry .d small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+  .entry .desc{font-size:14px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+  .entry .note{display:inline-block;margin-top:4px;font-size:11px;background:var(--soft);padding:2px 8px;border-radius:999px;color:var(--muted);font-weight:600}
+  .entry .nums{text-align:right;font-size:14px;line-height:1.35;min-width:70px}
+  .entry .nums b{font-size:16px}
+  .entry .nums .mi{color:var(--muted);font-size:12px}
+  .entry .nums .rb{color:var(--good);font-weight:600;font-size:12px}
+  .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:14px}
+
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:12px 14px;font-weight:600;font-size:14px;flex:1;min-width:0}
+  .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .btn.danger{color:var(--danger)}
+  .btn:disabled{opacity:.5}
+
+  .fab{position:fixed;right:18px;bottom:calc(22px + env(safe-area-inset-bottom));z-index:6;width:58px;height:58px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-size:30px;line-height:1;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+
+  /* bottom sheet */
+  .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:none}
+  .sheet-bg.open{display:block}
+  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;background:var(--card);border-radius:18px 18px 0 0;padding:14px 16px calc(16px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto;transform:translateY(105%);transition:transform .22s ease;max-width:760px;margin:0 auto}
+  .sheet.open{transform:translateY(0)}
+  .sheet h2{margin:0 0 12px;font-size:17px;display:flex;align-items:center;justify-content:space-between}
+  .sheet h2 button{background:none;border:0;font-size:22px;color:var(--muted);padding:4px 8px}
+  label.f{display:block;margin-bottom:12px;font-size:13px;font-weight:600;color:var(--muted)}
+  label.f input,label.f textarea,label.f select{display:block;width:100%;margin-top:5px;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:11px 12px;font-size:16px;font-weight:400;color:var(--ink)}
+  label.f textarea{min-height:84px;resize:vertical}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .presets{display:flex;gap:6px;flex-wrap:wrap;margin:-4px 0 12px}
+  .presets button{border:1px solid var(--line);background:var(--soft);border-radius:999px;padding:6px 11px;font-size:13px;font-weight:600}
+  .presets button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .hint{font-size:12px;color:var(--muted);margin:-6px 0 12px}
+  .preset-row{display:grid;grid-template-columns:80px 1fr 40px;gap:6px;margin-bottom:6px}
+  .preset-row input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;font-size:15px}
+  .preset-row button{border:0;background:none;color:var(--danger);font-size:18px}
+  .sect{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;margin:16px 0 8px}
+  .toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;z-index:30;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>Time Sheet <span class="sub" id="hdrSub"></span></h1>
+  <button class="iconbtn" id="btnExportAll" title="Export all months to Excel" aria-label="Export Excel">⬇</button>
+  <button class="iconbtn" id="btnSettings" title="Settings" aria-label="Settings">⚙</button>
+</header>
+
+<main>
+  <div class="monthbar" id="monthbar"></div>
+  <div id="view"></div>
+</main>
+
+<button class="fab" id="fab" aria-label="Add entry">+</button>
+
+<div class="sheet-bg" id="sheetBg"></div>
+
+<!-- Entry editor -->
+<div class="sheet" id="entrySheet">
+  <h2><span id="entryTitle">Add entry</span><button data-close>✕</button></h2>
+  <label class="f">Date<input type="date" id="eDate"></label>
+  <label class="f">Description<textarea id="eDesc" placeholder="BCs, 171F OAC and testing" autocapitalize="sentences"></textarea></label>
+  <div class="grid2">
+    <label class="f">Hours<input type="number" id="eHours" inputmode="decimal" step="0.5" min="0" placeholder="8"></label>
+    <label class="f">Miles<input type="number" id="eMiles" inputmode="decimal" step="1" min="0" placeholder="0"></label>
+  </div>
+  <div class="presets" id="milePresets"></div>
+  <label class="f">Note (column G)<input type="text" id="eNote" placeholder="Flyover" autocapitalize="words"></label>
+  <div class="presets" id="notePresets"><button type="button" data-note="Flyover">Flyover</button><button type="button" data-note="PTO">PTO</button><button type="button" data-note="Holiday">Holiday</button></div>
+  <div class="row">
+    <button class="btn danger" id="eDelete" style="flex:0 0 auto">Delete</button>
+    <button class="btn primary" id="eSave">Save</button>
+  </div>
+</div>
+
+<!-- Month sheet -->
+<div class="sheet" id="monthSheet">
+  <h2><span id="monthSheetTitle">New month</span><button data-close>✕</button></h2>
+  <div class="grid2">
+    <label class="f">Month<select id="mMonth"></select></label>
+    <label class="f">Year<input type="number" id="mYear" inputmode="numeric"></label>
+  </div>
+  <div class="row">
+    <button class="btn danger" id="mDelete" style="flex:0 0 auto">Delete month</button>
+    <button class="btn primary" id="mSave">Save</button>
+  </div>
+</div>
+
+<!-- Settings sheet -->
+<div class="sheet" id="settingsSheet">
+  <h2>Settings<button data-close>✕</button></h2>
+  <label class="f">Your name (used in the sheet title)<input type="text" id="sName" autocapitalize="words"></label>
+  <label class="f">Mileage rate ($ per mile)<input type="number" id="sRate" inputmode="decimal" step="0.01" min="0"></label>
+  <div class="sect">Mileage presets</div>
+  <div id="presetList"></div>
+  <button class="btn" id="sAddPreset" type="button">+ Add preset</button>
+  <div class="sect">Backup &amp; import</div>
+  <div class="row">
+    <button class="btn" id="sExportJson" type="button">Save backup (.json)</button>
+    <button class="btn" id="sImportBtn" type="button">Restore / import file</button>
+  </div>
+  <p class="hint" style="margin-top:8px">Import accepts a backup .json or an .xlsx exported from this app (or your original hourly-tracking workbook). Imported months are merged into what's here.</p>
+  <input type="file" id="sImportFile" accept=".json,.xlsx,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+  <div class="sect">Danger zone</div>
+  <button class="btn danger" id="sWipe" type="button">Erase all data on this device</button>
+  <div style="height:8px"></div>
+  <button class="btn primary" id="sSave" type="button">Save settings</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ==========================================================================
+//  Excel (.xlsx) writer/reader — no dependencies. Mirrors the layout of the
+//  original "HOURLY TRACKING" workbook: one sheet, months stacked vertically.
+// ==XLSX-START==
+const XLSX = (() => {
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const colLetter = n => { let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=(n-m-1)/26; } return s; };
+  const colIndex = l => { let n=0; for(const ch of l) n=n*26+(ch.charCodeAt(0)-64); return n; };
+  const EPOCH = Date.UTC(1899,11,30);
+  const isoToSerial = iso => { const [y,m,d]=iso.split('-').map(Number); return Math.round((Date.UTC(y,m-1,d)-EPOCH)/86400000); };
+  const serialToIso = n => { const dt=new Date(EPOCH+Math.round(n)*86400000); return dt.toISOString().slice(0,10); };
+
+  // ---- zip (store only) ----
+  const CRC_TABLE = (()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = c&1 ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); t[n]=c>>>0; } return t; })();
+  const crc32 = u8 => { let c=0xFFFFFFFF; for(let i=0;i<u8.length;i++) c = CRC_TABLE[(c^u8[i])&0xFF] ^ (c>>>8); return (c^0xFFFFFFFF)>>>0; };
+  function zipStore(files){
+    const enc=new TextEncoder(); const parts=[]; const central=[]; let offset=0;
+    const dosTime=0, dosDate=0x21; // 1980-01-01
+    for(const f of files){
+      const nameB=enc.encode(f.name); const data=f.data instanceof Uint8Array?f.data:enc.encode(f.data);
+      const crc=crc32(data), size=data.length;
+      const lh=new Uint8Array(30+nameB.length), v=new DataView(lh.buffer);
+      v.setUint32(0,0x04034b50,true); v.setUint16(4,20,true); v.setUint16(6,0,true); v.setUint16(8,0,true);
+      v.setUint16(10,dosTime,true); v.setUint16(12,dosDate,true); v.setUint32(14,crc,true); v.setUint32(18,size,true); v.setUint32(22,size,true);
+      v.setUint16(26,nameB.length,true); v.setUint16(28,0,true); lh.set(nameB,30);
+      parts.push(lh,data);
+      const ch=new Uint8Array(46+nameB.length), c=new DataView(ch.buffer);
+      c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0,true); c.setUint16(10,0,true);
+      c.setUint16(12,dosTime,true); c.setUint16(14,dosDate,true); c.setUint32(16,crc,true); c.setUint32(20,size,true); c.setUint32(24,size,true);
+      c.setUint16(28,nameB.length,true); c.setUint32(42,offset,true); ch.set(nameB,46);
+      central.push(ch); offset+=lh.length+size;
+    }
+    const cdSize=central.reduce((a,c)=>a+c.length,0);
+    const eocd=new Uint8Array(22), e=new DataView(eocd.buffer);
+    e.setUint32(0,0x06054b50,true); e.setUint16(8,files.length,true); e.setUint16(10,files.length,true); e.setUint32(12,cdSize,true); e.setUint32(16,offset,true);
+    const total=offset+cdSize+22; const out=new Uint8Array(total); let p=0;
+    for(const part of [...parts,...central,eocd]){ out.set(part,p); p+=part.length; }
+    return out;
+  }
+  async function inflateRaw(u8){
+    if (typeof DecompressionStream==='function'){
+      const ds=new DecompressionStream('deflate-raw'); const w=ds.writable.getWriter(); w.write(u8); w.close();
+      return new Uint8Array(await new Response(ds.readable).arrayBuffer());
+    }
+    if (XLSX._inflateRaw) return XLSX._inflateRaw(u8);
+    throw new Error('This browser cannot read compressed .xlsx files');
+  }
+  async function unzip(u8){
+    const v=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+    let p=u8.length-22; while(p>=0 && v.getUint32(p,true)!==0x06054b50) p--;
+    if(p<0) throw new Error('Not a valid .xlsx/zip file');
+    const n=v.getUint16(p+10,true); let cd=v.getUint32(p+16,true); const out={}; const dec=new TextDecoder();
+    for(let i=0;i<n;i++){
+      const method=v.getUint16(cd+10,true), csize=v.getUint32(cd+20,true), nl=v.getUint16(cd+28,true), el=v.getUint16(cd+30,true), cl=v.getUint16(cd+32,true), lho=v.getUint32(cd+42,true);
+      const name=dec.decode(u8.subarray(cd+46,cd+46+nl));
+      const lnl=v.getUint16(lho+26,true), lel=v.getUint16(lho+28,true); const start=lho+30+lnl+lel;
+      const comp=u8.subarray(start,start+csize);
+      out[name]= method===0 ? comp : (method===8 ? await inflateRaw(comp) : null);
+      cd+=46+nl+el+cl;
+    }
+    return out;
+  }
+
+  // ---- styles (indexes referenced by cells) ----
+  // 0 default | 1 title (bold, centered, bottom border) | 2 title filler (bottom border)
+  // 3 date (m/d/yy, L/T/B borders) | 4 description (all borders) | 5 number (R/T/B borders)
+  // 6 reimbursement (bold, all borders) | 7 TOTAL label (bold)
+  const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="1"><numFmt numFmtId="164" formatCode="m/d/yy;@"/></numFmts>
+<fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts>
+<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+<borders count="5">
+<border><left/><right/><top/><bottom/><diagonal/></border>
+<border><left/><right/><top/><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>
+<border><left style="thin"><color indexed="64"/></left><right/><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>
+<border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>
+<border><left/><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>
+</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="8">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="2" xfId="0" applyNumberFormat="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="3" xfId="0" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="4" xfId="0" applyBorder="1"/>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="3" xfId="0" applyFont="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+
+  // ---- build sheet rows ----
+  // months: [{year, month(1-12), entries:[{date:'YYYY-MM-DD', desc, hours, miles, note}]}]
+  function buildWorkbook(months, opts){
+    const name=(opts.name||'').trim(); const rate=Number(opts.rate)||0;
+    const BLANK_ROWS=2, GAP_ROWS=2, START_ROW=2;
+    const rows=[]; const merges=[];
+    const cellStr=(r,c,s,st)=>`<c r="${colLetter(c)}${r}" s="${st}" t="inlineStr"><is><t xml:space="preserve">${esc(s)}</t></is></c>`;
+    const cellNum=(r,c,n,st)=>`<c r="${colLetter(c)}${r}" s="${st}"><v>${n}</v></c>`;
+    const cellF=(r,c,f,st,cached)=>`<c r="${colLetter(c)}${r}" s="${st}"><f>${esc(f)}</f>${cached!=null?`<v>${cached}</v>`:''}</c>`;
+    const cellEmpty=(r,c,st)=>`<c r="${colLetter(c)}${r}" s="${st}"/>`;
+    const round=(n)=>Math.round(n*1e6)/1e6;
+    let r=START_ROW;
+    const sorted=[...months].sort((a,b)=>a.year-b.year||a.month-b.month);
+    sorted.forEach((m,mi)=>{
+      const title=`${name?name+' ':''}HOURLY TRACKING ${MONTHS[m.month-1]}`.trim();
+      rows.push(`<row r="${r}">${cellStr(r,2,title,1)}${[3,4,5,6,7].map(c=>cellEmpty(r,c,2)).join('')}</row>`);
+      merges.push(`B${r}:G${r}`); r++;
+      const first=r;
+      const entries=[...m.entries].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      let sumH=0,sumM=0;
+      for(const e of entries){
+        const cells=[];
+        cells.push(e.date?cellNum(r,2,isoToSerial(e.date),3):cellEmpty(r,2,3));
+        cells.push(e.desc?cellStr(r,3,e.desc,4):cellEmpty(r,3,4));
+        const h=e.hours===''||e.hours==null?null:Number(e.hours); const mi2=e.miles===''||e.miles==null?null:Number(e.miles);
+        cells.push(h!=null&&!isNaN(h)?cellNum(r,4,h,5):cellEmpty(r,4,5));
+        cells.push(mi2!=null&&!isNaN(mi2)&&mi2!==0?cellNum(r,5,mi2,5):cellEmpty(r,5,5));
+        const rb = mi2? round(rate*mi2):0;
+        cells.push(cellF(r,6,`${rate}*E${r}`,6,rb));
+        if(e.note) cells.push(cellStr(r,7,e.note,0));
+        sumH+=h||0; sumM+=mi2||0;
+        rows.push(`<row r="${r}">${cells.join('')}</row>`); r++;
+      }
+      for(let i=0;i<BLANK_ROWS;i++){
+        rows.push(`<row r="${r}">${cellEmpty(r,2,3)}${cellEmpty(r,3,4)}${cellEmpty(r,4,5)}${cellEmpty(r,5,5)}${cellF(r,6,`${rate}*E${r}`,6,0)}</row>`); r++;
+      }
+      const last=first+entries.length; // through the first blank row, like the original
+      rows.push(`<row r="${r}">${cellStr(r,3,'TOTAL',7)}${cellF(r,4,`SUM(D${first}:D${last})`,0,round(sumH))}${cellF(r,5,`SUM(E${first}:E${last})`,0,round(sumM))}${cellF(r,6,`SUM(F${first}:F${last})`,0,round(rate*sumM))}</row>`);
+      r++;
+      if(mi<sorted.length-1) r+=GAP_ROWS;
+    });
+    const lastRow=Math.max(r-1,START_ROW);
+    const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<dimension ref="B2:G${lastRow}"/>
+<sheetViews><sheetView workbookViewId="0"/></sheetViews>
+<sheetFormatPr defaultRowHeight="15"/>
+<cols><col min="2" max="2" width="13.140625" customWidth="1"/><col min="3" max="3" width="109.140625" customWidth="1"/><col min="4" max="4" width="7.140625" customWidth="1"/><col min="5" max="5" width="9.140625" customWidth="1"/></cols>
+<sheetData>${rows.join('')}</sheetData>
+${merges.length?`<mergeCells count="${merges.length}">${merges.map(m=>`<mergeCell ref="${m}"/>`).join('')}</mergeCells>`:''}
+<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>
+<pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>
+</worksheet>`;
+    const files=[
+      {name:'[Content_Types].xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`},
+      {name:'_rels/.rels',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`},
+      {name:'docProps/core.xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${esc(name?name+' HOURLY TRACKING':'HOURLY TRACKING')}</dc:title><dc:creator>${esc(name||'Time Sheet')}</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString().slice(0,19)}Z</dcterms:created></cp:coreProperties>`},
+      {name:'docProps/app.xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>Time Sheet</Application></Properties>`},
+      {name:'xl/workbook.xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>`},
+      {name:'xl/_rels/workbook.xml.rels',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`},
+      {name:'xl/styles.xml',data:STYLES_XML},
+      {name:'xl/worksheets/sheet1.xml',data:sheet},
+    ];
+    return zipStore(files);
+  }
+
+  // ---- read a workbook in the same layout back into months ----
+  const unesc = s => s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n)).replace(/&amp;/g,'&');
+  async function parseWorkbook(u8){
+    const z=await unzip(u8); const dec=new TextDecoder();
+    const text=n=>z[n]?dec.decode(z[n]):'';
+    // shared strings
+    const sst=[]; const sstXml=text('xl/sharedStrings.xml');
+    if(sstXml){ for(const si of sstXml.matchAll(/<si>([\s\S]*?)<\/si>/g)){ sst.push([...si[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(m=>unesc(m[1])).join('')); } }
+    // first worksheet
+    const wbXml=text('xl/workbook.xml'); const relsXml=text('xl/_rels/workbook.xml.rels');
+    let sheetPath='xl/worksheets/sheet1.xml';
+    const firstSheet=/<sheet [^>]*r:id="([^"]+)"/.exec(wbXml);
+    if(firstSheet){ const rel=new RegExp(`<Relationship [^>]*Id="${firstSheet[1]}"[^>]*Target="([^"]+)"`).exec(relsXml)||new RegExp(`<Relationship [^>]*Target="([^"]+)"[^>]*Id="${firstSheet[1]}"`).exec(relsXml); if(rel){ let t=rel[1]; if(t.startsWith('/')) t=t.slice(1); else t='xl/'+t; sheetPath=t; } }
+    const sx=text(sheetPath); if(!sx) throw new Error('No worksheet found');
+    // date styles
+    const stylesXml=text('xl/styles.xml'); const dateStyles=new Set();
+    if(stylesXml){
+      const numFmts={}; for(const m of stylesXml.matchAll(/<numFmt [^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)) numFmts[m[1]]=m[2];
+      const xfs=/<cellXfs[^>]*>([\s\S]*?)<\/cellXfs>/.exec(stylesXml);
+      if(xfs){ [...xfs[1].matchAll(/<xf [^>]*?\/?>/g)].forEach((m,i)=>{ const id=/numFmtId="(\d+)"/.exec(m[0]); if(!id) return; const n=+id[1]; const fc=numFmts[n]||''; if((n>=14&&n<=22)||/[dmy]/i.test(fc.replace(/\[[^\]]*\]/g,'').replace(/"[^"]*"/g,''))&&!/[#0]/.test(fc)) dateStyles.add(i); }); }
+    }
+    // cells
+    const grid={}; // row -> col -> {v, t, f, s}
+    for(const c of sx.matchAll(/<c r="([A-Z]+)(\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
+      const col=colIndex(c[1]), row=+c[2], attrs=c[3], inner=c[4]||'';
+      const t=/ t="([^"]+)"/.exec(attrs)?.[1]||'n'; const s=+(/ s="(\d+)"/.exec(attrs)?.[1]||0);
+      const f=/<f[^>]*>([\s\S]*?)<\/f>/.exec(inner)?.[1]; const vRaw=/<v>([\s\S]*?)<\/v>/.exec(inner)?.[1];
+      let v=null;
+      if(t==='s') v=sst[+vRaw]??'';
+      else if(t==='inlineStr') v=[...inner.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(m=>unesc(m[1])).join('');
+      else if(t==='str') v=vRaw!=null?unesc(vRaw):'';
+      else if(vRaw!=null) v=Number(vRaw);
+      (grid[row]||(grid[row]={}))[col]={v,t,f:f?unesc(f):null,s,isDate:dateStyles.has(s)};
+    }
+    const rowNums=Object.keys(grid).map(Number).sort((a,b)=>a-b);
+    const months=[]; let cur=null; let prevDate=null;
+    const findTitle=row=>{ for(const col of Object.keys(row)){ const c=row[col]; if(typeof c.v==='string'&&/HOURLY TRACKING/i.test(c.v)) return c.v; } return null; };
+    for(const rn of rowNums){
+      const row=grid[rn]; const title=findTitle(row);
+      if(title){
+        const m=/HOURLY TRACKING\s+([A-Za-z]+)(?:\s+(\d{4}))?/i.exec(title);
+        const mi=MONTHS.findIndex(x=>x.toLowerCase()===(m?.[1]||'').toLowerCase());
+        cur={month:mi>=0?mi+1:null,year:m?.[2]?+m[2]:null,entries:[],name:title.replace(/\s*HOURLY TRACKING.*$/i,'').trim()};
+        months.push(cur); prevDate=null; continue;
+      }
+      if(!cur) continue;
+      const B=row[2],C=row[3],D=row[4],E=row[5],G=row[7];
+      if(C&&typeof C.v==='string'&&/^\s*TOTAL\s*$/i.test(C.v)){ cur=null; continue; }
+      let date=null;
+      if(B){
+        if(typeof B.v==='number'&&B.v>20000) date=serialToIso(B.v);
+        else if(B.f&&prevDate){ const add=/\+\s*(\d+)/.exec(B.f); const d=new Date(prevDate+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+(add?+add[1]:1)); date=d.toISOString().slice(0,10); }
+        else if(typeof B.v==='string'&&/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(B.v)){ const [mm,dd,yy]=B.v.split('/').map(Number); date=`${yy<100?2000+yy:yy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`; }
+      }
+      const desc=C&&typeof C.v==='string'?C.v.trim():'';
+      const hours=D&&typeof D.v==='number'?D.v:null; const miles=E&&typeof E.v==='number'?E.v:null;
+      const note=G&&typeof G.v==='string'?G.v.trim():'';
+      if(!date&&!desc&&hours==null&&miles==null) continue;
+      if(date) prevDate=date;
+      cur.entries.push({date,desc,hours,miles,note});
+    }
+    for(const m of months){
+      const firstDate=m.entries.find(e=>e.date)?.date;
+      if(firstDate){ const [y,mo]=firstDate.split('-').map(Number); if(!m.year) m.year=y; if(!m.month) m.month=mo; }
+      if(!m.year) m.year=new Date().getFullYear(); if(!m.month) m.month=1;
+    }
+    return months.filter(m=>m.entries.length);
+  }
+
+  return { buildWorkbook, parseWorkbook, MONTHS, isoToSerial, serialToIso };
+})();
+// ==XLSX-END==
+// ==========================================================================
+
+if (typeof module!=='undefined' && module.exports){ module.exports=XLSX; }
+else (function(){
+  const MONTHS=XLSX.MONTHS;
+  const KEY='timesheet.v1';
+  const $=s=>document.querySelector(s);
+  const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+  const defaults=()=>({
+    settings:{ name:'Kollin Eubanks', rate:0.76, presets:[{miles:148,label:'Dodge SP'},{miles:168,label:'Wilcox SP'},{miles:74,label:'McEver'},{miles:88,label:'Rutledge SP'}] },
+    months:[], current:null
+  });
+  let state=load();
+  function load(){ try{ const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.settings&&Array.isArray(s.months)) return s; }catch(e){} return defaults(); }
+  function save(){ try{ localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){ toast('Could not save (storage full?)'); } }
+  const money=n=>'$'+(Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtNum=n=>Number.isInteger(n)?String(n):String(Math.round(n*100)/100);
+  const monthId=(y,m)=>`${y}-${String(m).padStart(2,'0')}`;
+  const todayIso=()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const fmtDate=iso=>{ const [y,m,d]=iso.split('-').map(Number); const dt=new Date(y,m-1,d); return {md:`${m}/${d}`, dow:dt.toLocaleDateString(undefined,{weekday:'short'})}; };
+  let toastT; function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200); }
+
+  function sortedMonths(){ return [...state.months].sort((a,b)=>a.year-b.year||a.month-b.month); }
+  function currentMonth(){ return state.months.find(m=>m.id===state.current)||null; }
+  function ensureCurrent(){
+    if(currentMonth()) return;
+    const ms=sortedMonths(); if(ms.length){ state.current=ms[ms.length-1].id; return; }
+    const d=new Date(); const m={id:monthId(d.getFullYear(),d.getMonth()+1),year:d.getFullYear(),month:d.getMonth()+1,entries:[]};
+    state.months.push(m); state.current=m.id; save();
+  }
+  function monthTotals(m){ let h=0,mi=0; for(const e of m.entries){ h+=Number(e.hours)||0; mi+=Number(e.miles)||0; } return {h,mi,rb:mi*(Number(state.settings.rate)||0)}; }
+
+  // ---------- render ----------
+  function render(){
+    ensureCurrent();
+    const m=currentMonth(); const ms=sortedMonths();
+    $('#hdrSub').textContent=`${state.settings.name||''}`.trim();
+    $('#monthbar').innerHTML=ms.map(x=>`<button class="chip ${x.id===state.current?'on':''}" data-m="${x.id}">${MONTHS[x.month-1].slice(0,3)} ${x.year}</button>`).join('')+`<button class="chip add" id="addMonth">+ Month</button>`;
+    const t=monthTotals(m);
+    const entries=[...m.entries].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    $('#view').innerHTML=`
+      <div class="card">
+        <p class="title">${esc(state.settings.name)} Hourly Tracking ${MONTHS[m.month-1]} ${m.year}</p>
+        <div class="totals">
+          <div class="tot"><b>${fmtNum(t.h)}</b><span>Hours</span></div>
+          <div class="tot"><b>${fmtNum(t.mi)}</b><span>Miles</span></div>
+          <div class="tot"><b>${money(t.rb)}</b><span>Mileage $</span></div>
+        </div>
+      </div>
+      <div class="card" style="padding:4px 14px">
+        ${entries.length?entries.map(e=>{
+          const d=e.date?fmtDate(e.date):{md:'—',dow:''}; const rb=(Number(e.miles)||0)*(Number(state.settings.rate)||0);
+          return `<button class="entry" data-e="${e.id}">
+            <div class="d">${d.md}<small>${d.dow}</small></div>
+            <div><div class="desc">${esc(e.desc||'')||'<span style="color:var(--muted)">No description</span>'}</div>${e.note?`<span class="note">${esc(e.note)}</span>`:''}</div>
+            <div class="nums">${e.hours!=null&&e.hours!==''?`<b>${fmtNum(Number(e.hours))}</b> hr`:'<span class="mi">— hr</span>'}${Number(e.miles)?`<div class="mi">${fmtNum(Number(e.miles))} mi</div><div class="rb">${money(rb)}</div>`:''}</div>
+          </button>`; }).join('')
+        :`<div class="empty">No entries yet for ${MONTHS[m.month-1]}.<br>Tap <b>+</b> to add your first day.</div>`}
+      </div>
+      <div class="row">
+        <button class="btn" id="editMonth">Edit month</button>
+        <button class="btn primary" id="exportMonth">Export ${MONTHS[m.month-1].slice(0,3)} to Excel</button>
+      </div>`;
+    document.querySelectorAll('.chip[data-m]').forEach(b=>b.onclick=()=>{ state.current=b.dataset.m; save(); render(); });
+    $('#addMonth').onclick=()=>openMonthSheet(null);
+    $('#editMonth').onclick=()=>openMonthSheet(m);
+    $('#exportMonth').onclick=()=>exportExcel([m]);
+    document.querySelectorAll('.entry').forEach(b=>b.onclick=()=>openEntry(b.dataset.e));
+  }
+  const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  // ---------- sheets ----------
+  function openSheet(id){ $('#sheetBg').classList.add('open'); document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('open')); $(id).classList.add('open'); }
+  function closeSheets(){ $('#sheetBg').classList.remove('open'); document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('open')); }
+  $('#sheetBg').onclick=closeSheets; document.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeSheets);
+
+  // entry editor
+  let editingId=null;
+  function nextWorkDate(m){
+    const dated=m.entries.filter(e=>e.date).map(e=>e.date).sort();
+    let d;
+    if(dated.length){ const [y,mo,da]=dated[dated.length-1].split('-').map(Number); d=new Date(y,mo-1,da); d.setDate(d.getDate()+1); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()+1); }
+    else { const now=new Date(); d=(now.getFullYear()===m.year&&now.getMonth()+1===m.month)?now:new Date(m.year,m.month-1,1); }
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function renderPresets(sel){
+    $('#milePresets').innerHTML=(state.settings.presets||[]).map(p=>`<button type="button" data-miles="${p.miles}" class="${Number(sel)===Number(p.miles)?'on':''}">${esc(p.label)} · ${p.miles}</button>`).join('');
+    document.querySelectorAll('#milePresets button').forEach(b=>b.onclick=()=>{ const cur=$('#eMiles').value; $('#eMiles').value=Number(cur)===Number(b.dataset.miles)?'':b.dataset.miles; renderPresets($('#eMiles').value); });
+  }
+  $('#eMiles').addEventListener('input',()=>renderPresets($('#eMiles').value));
+  document.querySelectorAll('#notePresets button').forEach(b=>b.onclick=()=>{ $('#eNote').value=$('#eNote').value===b.dataset.note?'':b.dataset.note; });
+  function openEntry(id){
+    const m=currentMonth(); editingId=id; const e=id?m.entries.find(x=>x.id===id):null;
+    $('#entryTitle').textContent=e?'Edit entry':'Add entry';
+    $('#eDate').value=e?(e.date||''):nextWorkDate(m);
+    $('#eDesc').value=e?.desc||''; $('#eHours').value=e?.hours??''; $('#eMiles').value=e?.miles??''; $('#eNote').value=e?.note||'';
+    $('#eDelete').style.display=e?'':'none'; renderPresets($('#eMiles').value);
+    openSheet('#entrySheet'); if(!e) setTimeout(()=>$('#eDesc').focus(),250);
+  }
+  $('#fab').onclick=()=>openEntry(null);
+  $('#eSave').onclick=()=>{
+    const m=currentMonth();
+    const hours=$('#eHours').value===''?null:Number($('#eHours').value);
+    const miles=$('#eMiles').value===''?null:Number($('#eMiles').value);
+    const data={date:$('#eDate').value||null,desc:$('#eDesc').value.trim(),hours,miles,note:$('#eNote').value.trim()};
+    if(!data.date&&!data.desc&&hours==null){ toast('Add a date or description first'); return; }
+    if(editingId){ Object.assign(m.entries.find(x=>x.id===editingId),data); } else m.entries.push({id:uid(),...data});
+    save(); closeSheets(); render();
+  };
+  $('#eDelete').onclick=()=>{ if(!editingId) return; if(!confirm('Delete this entry?')) return; const m=currentMonth(); m.entries=m.entries.filter(x=>x.id!==editingId); save(); closeSheets(); render(); };
+
+  // month editor
+  let editingMonth=null;
+  $('#mMonth').innerHTML=MONTHS.map((n,i)=>`<option value="${i+1}">${n}</option>`).join('');
+  function openMonthSheet(m){
+    editingMonth=m; $('#monthSheetTitle').textContent=m?'Edit month':'New month';
+    const d=new Date(); let y=d.getFullYear(), mo=d.getMonth()+1;
+    if(!m){ const ms=sortedMonths(); if(ms.length){ const last=ms[ms.length-1]; mo=last.month%12+1; y=last.month===12?last.year+1:last.year; } }
+    $('#mMonth').value=m?m.month:mo; $('#mYear').value=m?m.year:y; $('#mDelete').style.display=m?'':'none';
+    openSheet('#monthSheet');
+  }
+  $('#mSave').onclick=()=>{
+    const month=+$('#mMonth').value, year=+$('#mYear').value; if(!year||year<2000||year>2100){ toast('Enter a valid year'); return; }
+    const id=monthId(year,month); const clash=state.months.find(x=>x.id===id&&x!==editingMonth);
+    if(clash){ toast(`${MONTHS[month-1]} ${year} already exists`); return; }
+    if(editingMonth){ Object.assign(editingMonth,{id,year,month}); } else state.months.push({id,year,month,entries:[]});
+    state.current=id; save(); closeSheets(); render();
+  };
+  $('#mDelete').onclick=()=>{ if(!editingMonth) return; if(!confirm(`Delete ${MONTHS[editingMonth.month-1]} ${editingMonth.year} and its ${editingMonth.entries.length} entries?`)) return; state.months=state.months.filter(x=>x!==editingMonth); state.current=null; save(); closeSheets(); render(); };
+
+  // settings
+  function renderPresetList(){
+    $('#presetList').innerHTML=(state.settings.presets||[]).map((p,i)=>`<div class="preset-row"><input type="number" inputmode="decimal" value="${p.miles}" data-i="${i}" data-k="miles" placeholder="mi"><input type="text" value="${esc(p.label)}" data-i="${i}" data-k="label" placeholder="Label"><button type="button" data-del="${i}">✕</button></div>`).join('')||'<p class="hint">No presets yet.</p>';
+    document.querySelectorAll('#presetList [data-del]').forEach(b=>b.onclick=()=>{ readPresetInputs(); state.settings.presets.splice(+b.dataset.del,1); renderPresetList(); });
+  }
+  function readPresetInputs(){ document.querySelectorAll('#presetList input').forEach(i=>{ const p=state.settings.presets[+i.dataset.i]; if(!p) return; p[i.dataset.k]=i.dataset.k==='miles'?Number(i.value)||0:i.value; }); }
+  $('#btnSettings').onclick=()=>{ $('#sName').value=state.settings.name||''; $('#sRate').value=state.settings.rate; renderPresetList(); openSheet('#settingsSheet'); };
+  $('#sAddPreset').onclick=()=>{ readPresetInputs(); state.settings.presets.push({miles:0,label:''}); renderPresetList(); };
+  $('#sSave').onclick=()=>{ readPresetInputs(); state.settings.name=$('#sName').value.trim(); state.settings.rate=Number($('#sRate').value)||0; state.settings.presets=state.settings.presets.filter(p=>p.miles>0||p.label); save(); closeSheets(); render(); toast('Settings saved'); };
+  $('#sWipe').onclick=()=>{ if(!confirm('Erase ALL months and entries on this device? Export a backup first if you need one.')) return; if(!confirm('Really erase everything?')) return; state=defaults(); save(); closeSheets(); render(); };
+
+  // ---------- export / import ----------
+  function download(bytes,filename,type){
+    const blob=bytes instanceof Blob?bytes:new Blob([bytes],{type});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },1500);
+  }
+  async function exportExcel(months){
+    const list=months.filter(m=>m.entries.length||months.length===1);
+    if(!list.length){ toast('Nothing to export yet'); return; }
+    const bytes=XLSX.buildWorkbook(list.map(m=>({year:m.year,month:m.month,entries:m.entries})),{name:state.settings.name,rate:state.settings.rate});
+    const base=`${state.settings.name?state.settings.name+' ':''}HOURLY TRACKING${list.length===1?' '+MONTHS[list[0].month-1]+' '+list[0].year:''}`.trim();
+    const type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const file=new File([bytes],base+'.xlsx',{type});
+    if(navigator.canShare&&navigator.canShare({files:[file]})&&/iPhone|iPad|Android/i.test(navigator.userAgent)){
+      try{ await navigator.share({files:[file],title:base}); return; }catch(e){ if(e&&e.name==='AbortError') return; }
+    }
+    download(bytes,base+'.xlsx',type); toast('Excel file ready');
+  }
+  $('#btnExportAll').onclick=()=>exportExcel(sortedMonths());
+  $('#sExportJson').onclick=()=>{ download(JSON.stringify(state,null,1),`timesheet-backup-${todayIso()}.json`,'application/json'); toast('Backup saved'); };
+  $('#sImportBtn').onclick=()=>$('#sImportFile').click();
+  $('#sImportFile').onchange=async ev=>{
+    const f=ev.target.files[0]; ev.target.value=''; if(!f) return;
+    try{
+      let months, settings=null;
+      if(/\.json$/i.test(f.name)){ const j=JSON.parse(await f.text()); if(!Array.isArray(j.months)) throw new Error('Not a Time Sheet backup'); months=j.months; settings=j.settings; }
+      else { const parsed=await XLSX.parseWorkbook(new Uint8Array(await f.arrayBuffer())); months=parsed; const nm=parsed.find(m=>m.name)?.name; if(nm&&!state.settings.name) state.settings.name=nm; }
+      let added=0,merged=0;
+      for(const im of months){
+        const id=monthId(im.year,im.month); let m=state.months.find(x=>x.id===id);
+        if(!m){ m={id,year:im.year,month:im.month,entries:[]}; state.months.push(m); added++; } else merged++;
+        for(const e of im.entries){
+          const dup=m.entries.find(x=>x.date===e.date&&(x.desc||'')===(e.desc||'')&&Number(x.hours||0)===Number(e.hours||0));
+          if(dup) continue;
+          m.entries.push({id:uid(),date:e.date||null,desc:e.desc||'',hours:e.hours??null,miles:e.miles??null,note:e.note||''});
+        }
+      }
+      if(settings){ state.settings={...state.settings,...settings}; }
+      if(months.length){ const last=[...months].sort((a,b)=>a.year-b.year||a.month-b.month).pop(); state.current=monthId(last.year,last.month); }
+      save(); closeSheets(); render(); toast(`Imported ${months.length} month${months.length===1?'':'s'} (${added} new, ${merged} merged)`);
+    }catch(e){ console.error(e); toast('Import failed: '+(e.message||e)); }
+  };
+
+  render();
+})();
+</script>
+</body>
+</html>
