@@ -26,6 +26,12 @@
   header{position:sticky;top:0;z-index:5;background:var(--accent);color:var(--accent-ink);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
   header h1{font-size:19px;margin:0;flex:1;letter-spacing:.2px}
   header .sub{font-size:12px;opacity:.8;display:block;font-weight:400}
+  .syncdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#9aa7b5;margin:0 5px 0 10px;vertical-align:middle}
+  .syncdot.ok{background:#4fd08a}.syncdot.busy{background:#ffd166;animation:pulse 1s infinite}.syncdot.err{background:#ff6b6b}.syncdot.off{display:none}
+  .synctext{font-size:11px;opacity:.8}
+  @keyframes pulse{50%{opacity:.3}}
+  .status{font-size:13px;color:var(--muted);margin:-4px 0 10px}
+  .status.ok{color:var(--good)}.status.err{color:var(--danger)}
   .iconbtn{background:rgba(255,255,255,.14);border:0;color:inherit;border-radius:10px;width:40px;height:40px;display:grid;place-items:center;font-size:18px}
   @media (prefers-color-scheme:dark){ .iconbtn{background:rgba(0,0,0,.18)} }
 
@@ -97,7 +103,7 @@
 </head>
 <body>
 <header>
-  <h1>Time Sheet <span class="sub" id="hdrSub"></span></h1>
+  <h1>Time Sheet <span class="sub"><span id="hdrName"></span><span id="syncDot" class="syncdot" title="Cloud sync"></span><span id="syncText" class="synctext"></span></span></h1>
   <button class="iconbtn" id="btnExportAll" title="Export all months to Excel" aria-label="Export Excel">⬇</button>
   <button class="iconbtn" id="btnSettings" title="Settings" aria-label="Settings">⚙</button>
 </header>
@@ -153,6 +159,17 @@
 <!-- Settings sheet -->
 <div class="sheet" id="settingsSheet">
   <h2>Settings<button data-close>✕</button></h2>
+  <div class="sect" style="margin-top:0">Cloud sync</div>
+  <p class="status" id="syncStatus"></p>
+  <label class="f">Server<input type="url" id="syncUrl" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://timesheet.kollinmeubanks.workers.dev"></label>
+  <label class="f" id="syncPassLabel">Passcode<input type="password" id="syncPass" autocomplete="off" placeholder="Same passcode on every device"></label>
+  <div class="row" style="margin-bottom:4px">
+    <button class="btn primary" id="syncConnect" type="button">Connect</button>
+    <button class="btn" id="syncNow" type="button">Sync now</button>
+    <button class="btn danger" id="syncDisconnect" type="button" style="flex:0 0 auto">Disconnect</button>
+  </div>
+  <p class="hint">The first device to connect creates the passcode; every other device just enters it. Changes sync automatically whenever the app is open.</p>
+  <div class="sect">Profile</div>
   <label class="f">Your name (used in the sheet title)<input type="text" id="sName" autocapitalize="words"></label>
   <label class="f">Mileage rate ($ per mile)<input type="number" id="sRate" inputmode="decimal" step="0.01" min="0"></label>
   <div class="sect">Mileage presets</div>
@@ -435,8 +452,17 @@ else (function(){
     months:[], current:null
   });
   let state=load();
-  function load(){ try{ const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.settings&&Array.isArray(s.months)){ if(!s.settings.shortcuts) s.settings.shortcuts=defaultShortcuts(); return s; } }catch(e){} return defaults(); }
-  function save(){ try{ localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){ toast('Could not save (storage full?)'); } }
+  function migrate(s){
+    if(!s.settings.shortcuts) s.settings.shortcuts=defaultShortcuts();
+    if(!s.settings.updated_at) s.settings.updated_at=0;
+    for(const m of s.months){ if(!m.updated_at) m.updated_at=0; if(!m.deleted) m.deleted=0; if(!Array.isArray(m.entries)) m.entries=[]; for(const e of m.entries){ if(!e.updated_at) e.updated_at=0; if(!e.deleted) e.deleted=0; } }
+    return s;
+  }
+  function load(){ try{ const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.settings&&Array.isArray(s.months)) return migrate(s); }catch(e){} return migrate(defaults()); }
+  function saveLocal(){ try{ localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){ toast('Could not save (storage full?)'); } }
+  function save(){ saveLocal(); scheduleSync(); }
+  const now=()=>Date.now();
+  const live=m=>m.entries.filter(e=>!e.deleted);
   const money=n=>'$'+(Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmtNum=n=>Number.isInteger(n)?String(n):String(Math.round(n*100)/100);
   const monthId=(y,m)=>`${y}-${String(m).padStart(2,'0')}`;
@@ -444,24 +470,25 @@ else (function(){
   const fmtDate=iso=>{ const [y,m,d]=iso.split('-').map(Number); const dt=new Date(y,m-1,d); return {md:`${m}/${d}`, dow:dt.toLocaleDateString(undefined,{weekday:'short'})}; };
   let toastT; function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200); }
 
-  function sortedMonths(){ return [...state.months].sort((a,b)=>a.year-b.year||a.month-b.month); }
-  function currentMonth(){ return state.months.find(m=>m.id===state.current)||null; }
+  function sortedMonths(){ return state.months.filter(m=>!m.deleted).sort((a,b)=>a.year-b.year||a.month-b.month); }
+  function currentMonth(){ const m=state.months.find(m=>m.id===state.current); return m&&!m.deleted?m:null; }
+  function findMonth(y,mo){ return state.months.find(m=>!m.deleted&&m.year===y&&m.month===mo); }
+  function newMonth(y,mo){ const m={id:uid(),year:y,month:mo,entries:[],updated_at:now(),deleted:0}; state.months.push(m); return m; }
   function ensureCurrent(){
     if(currentMonth()) return;
     const ms=sortedMonths(); if(ms.length){ state.current=ms[ms.length-1].id; return; }
-    const d=new Date(); const m={id:monthId(d.getFullYear(),d.getMonth()+1),year:d.getFullYear(),month:d.getMonth()+1,entries:[]};
-    state.months.push(m); state.current=m.id; save();
+    const d=new Date(); const m=newMonth(d.getFullYear(),d.getMonth()+1); state.current=m.id; save();
   }
-  function monthTotals(m){ let h=0,mi=0; for(const e of m.entries){ h+=Number(e.hours)||0; mi+=Number(e.miles)||0; } return {h,mi,rb:mi*(Number(state.settings.rate)||0)}; }
+  function monthTotals(m){ let h=0,mi=0; for(const e of live(m)){ h+=Number(e.hours)||0; mi+=Number(e.miles)||0; } return {h,mi,rb:mi*(Number(state.settings.rate)||0)}; }
 
   // ---------- render ----------
   function render(){
     ensureCurrent();
     const m=currentMonth(); const ms=sortedMonths();
-    $('#hdrSub').textContent=`${state.settings.name||''}`.trim();
+    $('#hdrName').textContent=`${state.settings.name||''}`.trim();
     $('#monthbar').innerHTML=ms.map(x=>`<button class="chip ${x.id===state.current?'on':''}" data-m="${x.id}">${MONTHS[x.month-1].slice(0,3)} ${x.year}</button>`).join('')+`<button class="chip add" id="addMonth">+ Month</button>`;
     const t=monthTotals(m);
-    const entries=[...m.entries].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    const entries=live(m).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
     $('#view').innerHTML=`
       <div class="card">
         <p class="title">${esc(state.settings.name)} Hourly Tracking ${MONTHS[m.month-1]} ${m.year}</p>
@@ -546,10 +573,11 @@ else (function(){
     const miles=$('#eMiles').value===''?null:Number($('#eMiles').value);
     const data={date:$('#eDate').value||null,desc:$('#eDesc').value.trim(),hours,miles,note:$('#eNote').value.trim()};
     if(!data.date&&!data.desc&&hours==null){ toast('Add a date or description first'); return; }
+    data.updated_at=now(); data.deleted=0;
     if(editingId){ Object.assign(m.entries.find(x=>x.id===editingId),data); } else m.entries.push({id:uid(),...data});
     save(); closeSheets(); render();
   };
-  $('#eDelete').onclick=()=>{ if(!editingId) return; if(!confirm('Delete this entry?')) return; const m=currentMonth(); m.entries=m.entries.filter(x=>x.id!==editingId); save(); closeSheets(); render(); };
+  $('#eDelete').onclick=()=>{ if(!editingId) return; if(!confirm('Delete this entry?')) return; const m=currentMonth(); const e=m.entries.find(x=>x.id===editingId); if(e){ e.deleted=1; e.updated_at=now(); } save(); closeSheets(); render(); };
 
   // month editor
   let editingMonth=null;
@@ -563,12 +591,13 @@ else (function(){
   }
   $('#mSave').onclick=()=>{
     const month=+$('#mMonth').value, year=+$('#mYear').value; if(!year||year<2000||year>2100){ toast('Enter a valid year'); return; }
-    const id=monthId(year,month); const clash=state.months.find(x=>x.id===id&&x!==editingMonth);
-    if(clash){ toast(`${MONTHS[month-1]} ${year} already exists`); return; }
-    if(editingMonth){ Object.assign(editingMonth,{id,year,month}); } else state.months.push({id,year,month,entries:[]});
-    state.current=id; save(); closeSheets(); render();
+    const clash=findMonth(year,month);
+    if(clash&&clash!==editingMonth){ toast(`${MONTHS[month-1]} ${year} already exists`); return; }
+    let m=editingMonth;
+    if(m){ Object.assign(m,{year,month,updated_at:now()}); } else m=newMonth(year,month);
+    state.current=m.id; save(); closeSheets(); render();
   };
-  $('#mDelete').onclick=()=>{ if(!editingMonth) return; if(!confirm(`Delete ${MONTHS[editingMonth.month-1]} ${editingMonth.year} and its ${editingMonth.entries.length} entries?`)) return; state.months=state.months.filter(x=>x!==editingMonth); state.current=null; save(); closeSheets(); render(); };
+  $('#mDelete').onclick=()=>{ if(!editingMonth) return; if(!confirm(`Delete ${MONTHS[editingMonth.month-1]} ${editingMonth.year} and its ${live(editingMonth).length} entries?`)) return; const t=now(); editingMonth.deleted=1; editingMonth.updated_at=t; for(const e of editingMonth.entries){ e.deleted=1; e.updated_at=t; } state.current=null; save(); closeSheets(); render(); };
 
   // settings
   function renderPresetList(){
@@ -582,8 +611,8 @@ else (function(){
     openSheet('#settingsSheet'); };
   $('#sAddPreset').onclick=()=>{ readPresetInputs(); state.settings.presets.push({miles:0,label:''}); renderPresetList(); };
   $('#sSave').onclick=()=>{ readPresetInputs(); state.settings.name=$('#sName').value.trim(); state.settings.rate=Number($('#sRate').value)||0; state.settings.presets=state.settings.presets.filter(p=>p.miles>0||p.label);
-    state.settings.shortcuts={tasks:lines($('#sScTasks').value),projects:lines($('#sScProjects').value),projectTasks:lines($('#sScProjectTasks').value)}; save(); closeSheets(); render(); toast('Settings saved'); };
-  $('#sWipe').onclick=()=>{ if(!confirm('Erase ALL months and entries on this device? Export a backup first if you need one.')) return; if(!confirm('Really erase everything?')) return; state=defaults(); save(); closeSheets(); render(); };
+    state.settings.shortcuts={tasks:lines($('#sScTasks').value),projects:lines($('#sScProjects').value),projectTasks:lines($('#sScProjectTasks').value)}; state.settings.updated_at=now(); save(); closeSheets(); render(); toast('Settings saved'); };
+  $('#sWipe').onclick=()=>{ if(!confirm('Erase ALL months and entries on this device? Export a backup first if you need one.')) return; if(!confirm('Really erase everything?')) return; state=migrate(defaults()); saveLocal(); closeSheets(); render(); if(syncCfg.url&&syncCfg.passcode) sync('wipe'); };
 
   // ---------- export / import ----------
   function download(bytes,filename,type){
@@ -592,9 +621,9 @@ else (function(){
     setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },1500);
   }
   async function exportExcel(months){
-    const list=months.filter(m=>m.entries.length||months.length===1);
+    const list=months.filter(m=>live(m).length||months.length===1);
     if(!list.length){ toast('Nothing to export yet'); return; }
-    const bytes=XLSX.buildWorkbook(list.map(m=>({year:m.year,month:m.month,entries:m.entries})),{name:state.settings.name,rate:state.settings.rate});
+    const bytes=XLSX.buildWorkbook(list.map(m=>({year:m.year,month:m.month,entries:live(m)})),{name:state.settings.name,rate:state.settings.rate});
     const base=`${state.settings.name?state.settings.name+' ':''}HOURLY TRACKING${list.length===1?' '+MONTHS[list[0].month-1]+' '+list[0].year:''}`.trim();
     const type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     const file=new File([bytes],base+'.xlsx',{type});
@@ -619,23 +648,133 @@ else (function(){
       let months, settings=null;
       if(/\.json$/i.test(f.name)){ const j=JSON.parse(await f.text()); if(!Array.isArray(j.months)) throw new Error('Not a Time Sheet backup'); months=j.months; settings=j.settings; }
       else { const parsed=await XLSX.parseWorkbook(new Uint8Array(await f.arrayBuffer())); months=parsed; const nm=parsed.find(m=>m.name)?.name; if(nm&&!state.settings.name) state.settings.name=nm; }
-      let added=0,merged=0;
+      let added=0,merged=0; const t=now();
       for(const im of months){
-        const id=monthId(im.year,im.month); let m=state.months.find(x=>x.id===id);
-        if(!m){ m={id,year:im.year,month:im.month,entries:[]}; state.months.push(m); added++; } else merged++;
-        for(const e of im.entries){
-          const dup=m.entries.find(x=>x.date===e.date&&(x.desc||'')===(e.desc||'')&&Number(x.hours||0)===Number(e.hours||0));
+        if(im.deleted) continue;
+        let m=findMonth(im.year,im.month);
+        if(!m){ m=newMonth(im.year,im.month); added++; } else merged++;
+        for(const e of im.entries||[]){
+          if(e.deleted) continue;
+          const dup=live(m).find(x=>x.date===e.date&&(x.desc||'')===(e.desc||'')&&Number(x.hours||0)===Number(e.hours||0));
           if(dup) continue;
-          m.entries.push({id:uid(),date:e.date||null,desc:e.desc||'',hours:e.hours??null,miles:e.miles??null,note:e.note||''});
+          m.entries.push({id:uid(),date:e.date||null,desc:e.desc||'',hours:e.hours??null,miles:e.miles??null,note:e.note||'',updated_at:t,deleted:0});
         }
       }
-      if(settings){ state.settings={...state.settings,...settings}; }
-      if(months.length){ const last=[...months].sort((a,b)=>a.year-b.year||a.month-b.month).pop(); state.current=monthId(last.year,last.month); }
+      if(settings){ const keep=state.settings; state.settings={...keep,...settings,updated_at:t}; }
+      if(months.length){ const last=[...months].sort((a,b)=>a.year-b.year||a.month-b.month).pop(); const lm=findMonth(last.year,last.month); if(lm) state.current=lm.id; }
       save(); closeSheets(); render(); toast(`Imported ${months.length} month${months.length===1?'':'s'} (${added} new, ${merged} merged)`);
     }catch(e){ console.error(e); toast('Import failed: '+(e.message||e)); }
   };
 
+  // ---------- cloud sync (Cloudflare Worker + D1) ----------
+  const SYNC_KEY='timesheet.sync';
+  const DEFAULT_API='https://timesheet.kollinmeubanks.workers.dev';
+  let syncCfg=(()=>{ try{ return JSON.parse(localStorage.getItem(SYNC_KEY))||{}; }catch(e){ return {}; } })();
+  if(!syncCfg.url) syncCfg.url=DEFAULT_API;
+  const saveSyncCfg=()=>localStorage.setItem(SYNC_KEY,JSON.stringify(syncCfg));
+  let syncTimer=null, syncing=false, syncAgain=false, lastErr='';
+  function setStatus(kind,text){
+    const dot=$('#syncDot'), txt=$('#syncText');
+    if(!syncCfg.passcode){ dot.className='syncdot off'; txt.textContent=''; }
+    else { dot.className='syncdot '+kind; txt.textContent=text||''; }
+    const st=$('#syncStatus'); if(st){ st.className='status '+(kind==='ok'?'ok':kind==='err'?'err':''); st.textContent=!syncCfg.passcode?'Not connected — enter the server and passcode, then tap Connect.':(kind==='ok'?'Connected · synced '+new Date(syncCfg.lastSync||Date.now()).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}):kind==='busy'?'Syncing…':kind==='err'?('Problem: '+(lastErr||'could not reach server')):'Connected'); }
+  }
+  function scheduleSync(){ if(!syncCfg.passcode) return; clearTimeout(syncTimer); syncTimer=setTimeout(()=>sync('change'),1200); }
+  function pushBody(){
+    return {
+      months: state.months.map(m=>({id:m.id,year:m.year,month:m.month,updated_at:m.updated_at||0,deleted:m.deleted?1:0})),
+      entries: state.months.flatMap(m=>m.entries.map(e=>({id:e.id,month_id:m.id,date:e.date||null,description:e.desc||'',hours:e.hours??null,miles:e.miles??null,note:e.note||'',updated_at:e.updated_at||0,deleted:e.deleted?1:0}))),
+      settings: { json: JSON.stringify(state.settings), updated_at: state.settings.updated_at||0 }
+    };
+  }
+  function mergeServer(srv){
+    let changed=false;
+    for(const sm of srv.months||[]){
+      let lm=state.months.find(x=>x.id===sm.id);
+      if(!lm){ state.months.push({id:sm.id,year:sm.year,month:sm.month,entries:[],updated_at:sm.updated_at||0,deleted:sm.deleted?1:0}); changed=true; }
+      else if((sm.updated_at||0)>(lm.updated_at||0)){ Object.assign(lm,{year:sm.year,month:sm.month,updated_at:sm.updated_at,deleted:sm.deleted?1:0}); changed=true; }
+    }
+    for(const se of srv.entries||[]){
+      let lm=state.months.find(x=>x.id===se.month_id); if(!lm) continue;
+      const data={date:se.date||null,desc:se.description||'',hours:se.hours??null,miles:se.miles??null,note:se.note||'',updated_at:se.updated_at||0,deleted:se.deleted?1:0};
+      let le=null; for(const m of state.months){ le=m.entries.find(x=>x.id===se.id); if(le){ if(m!==lm&&(se.updated_at||0)>(le.updated_at||0)){ m.entries=m.entries.filter(x=>x!==le); le=null; } break; } }
+      if(!le){ lm.entries.push({id:se.id,...data}); changed=true; }
+      else if((se.updated_at||0)>(le.updated_at||0)){ Object.assign(le,data); changed=true; }
+    }
+    if(srv.settings&&srv.settings.json&&(srv.settings.updated_at||0)>(state.settings.updated_at||0)){
+      try{ const sset=JSON.parse(srv.settings.json); state.settings={...state.settings,...sset,updated_at:srv.settings.updated_at}; changed=true; }catch(e){}
+    }
+    // if two devices created the same calendar month separately, fold the newer one into the older
+    const seen={};
+    for(const m of sortedMonths().sort((a,b)=>(a.updated_at||0)-(b.updated_at||0))){
+      const k=m.year+'-'+m.month;
+      if(seen[k]){ const keep=seen[k]; const t=now(); for(const e of m.entries){ keep.entries.push(e); e.updated_at=Math.max(e.updated_at||0,t); } m.entries=[]; m.deleted=1; m.updated_at=t; if(state.current===m.id) state.current=keep.id; changed=true; }
+      else seen[k]=m;
+    }
+    return changed;
+  }
+  async function api(path,opts={}){
+    const url=syncCfg.url.replace(/\/+$/,'')+path;
+    const headers={'content-type':'application/json',...(opts.headers||{})};
+    if(syncCfg.passcode) headers.authorization='Bearer '+syncCfg.passcode;
+    const ctrl=new AbortController(); const tm=setTimeout(()=>ctrl.abort(),20000);
+    try{ const res=await fetch(url,{...opts,headers,signal:ctrl.signal}); const data=await res.json().catch(()=>({})); return {ok:res.ok,status:res.status,data}; }
+    finally{ clearTimeout(tm); }
+  }
+  async function sync(reason){
+    if(!syncCfg.url||!syncCfg.passcode) return false;
+    if(syncing){ syncAgain=true; return false; }
+    syncing=true; setStatus('busy','syncing');
+    try{
+      const r=await api('/api/sync',{method:'POST',body:JSON.stringify(pushBody())});
+      if(r.status===401){ lastErr=r.data.error||'wrong passcode'; setStatus('err','passcode?'); return false; }
+      if(!r.ok) throw new Error(r.data.error||('HTTP '+r.status));
+      const changed=mergeServer(r.data); saveLocal();
+      syncCfg.lastSync=now(); saveSyncCfg(); lastErr=''; setStatus('ok','synced');
+      if(changed) render();
+      return true;
+    }catch(e){ lastErr=e.name==='AbortError'?'timed out':(e.message||String(e)); setStatus('err','offline'); return false; }
+    finally{ syncing=false; if(syncAgain){ syncAgain=false; sync('again'); } }
+  }
+  async function connect(){
+    const url=$('#syncUrl').value.trim().replace(/\/+$/,''); const pc=$('#syncPass').value;
+    if(!url){ toast('Enter the server address'); return; }
+    if(!pc||pc.length<4){ toast('Passcode needs at least 4 characters'); return; }
+    syncCfg.url=url; const prev=syncCfg.passcode; syncCfg.passcode=null; saveSyncCfg();
+    $('#syncConnect').disabled=true; $('#syncConnect').textContent='Connecting…';
+    try{
+      const ping=await api('/',{method:'GET'});
+      if(!ping.ok||!ping.data.ok) throw new Error('Server not reachable yet — is the Worker deployed?');
+      if(!ping.data.setup){
+        if(!confirm('No passcode exists on this server yet. Create "'+pc+'" as the passcode? You will use it on your other devices.')) throw new Error('Cancelled');
+        const c=await api('/api/passcode',{method:'POST',body:JSON.stringify({passcode:pc})});
+        if(!c.ok) throw new Error(c.data.error||'Could not create passcode');
+      }
+      syncCfg.passcode=pc; saveSyncCfg();
+      const ok=await sync('connect');
+      if(!ok) throw new Error(lastErr||'Sync failed');
+      toast('Connected — your data is in the cloud'); $('#syncPass').value='';
+    }catch(e){ syncCfg.passcode=null; saveSyncCfg(); lastErr=e.message||String(e); setStatus('err'); toast(lastErr); }
+    finally{ $('#syncConnect').disabled=false; $('#syncConnect').textContent='Connect'; renderSyncUI(); }
+  }
+  function renderSyncUI(){
+    const on=!!syncCfg.passcode;
+    $('#syncUrl').value=syncCfg.url||DEFAULT_API;
+    $('#syncUrl').disabled=on; $('#syncPass').style.display=on?'none':''; $('#syncPassLabel').style.display=on?'none':'';
+    $('#syncConnect').style.display=on?'none':''; $('#syncNow').style.display=on?'':'none'; $('#syncDisconnect').style.display=on?'':'none';
+    setStatus(lastErr?'err':(syncCfg.lastSync?'ok':''),'');
+  }
+  $('#syncConnect').onclick=connect;
+  $('#syncNow').onclick=async()=>{ const ok=await sync('manual'); toast(ok?'Synced':'Sync failed: '+lastErr); renderSyncUI(); };
+  $('#syncDisconnect').onclick=()=>{ if(!confirm('Disconnect this device from cloud sync? Your data stays on the server and on this device.')) return; syncCfg.passcode=null; syncCfg.lastSync=null; saveSyncCfg(); lastErr=''; renderSyncUI(); setStatus('off'); };
+  const _openSettings=$('#btnSettings').onclick; $('#btnSettings').onclick=()=>{ _openSettings(); renderSyncUI(); };
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') sync('visible'); });
+  window.addEventListener('online',()=>sync('online'));
+  setInterval(()=>sync('timer'),120000);
+
   render();
+  setStatus(syncCfg.passcode?(syncCfg.lastSync?'ok':''):'off','');
+  if(syncCfg.passcode) sync('load');
 })();
 </script>
 </body>
