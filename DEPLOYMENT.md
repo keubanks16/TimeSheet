@@ -9,10 +9,11 @@ The D1 database `timesheet` (id in `worker/wrangler.toml`) already exists with i
 
 1. Cloudflare dashboard → **Workers & Pages → Create → Import a repository**.
 2. Pick GitHub repo **TimeSheet** (approve GitHub access if asked).
-3. Project name: `timesheet`. **Root directory: `worker`**. Leave the build/deploy commands as they are.
+3. Project name: `timesheet`. Leave root directory, build and deploy commands as they are (a `wrangler.toml` at the repo root points at the Worker).
 4. **Create and deploy.**
 
-Cloudflare redeploys the API by itself whenever `worker/` changes on `main`.
+Cloudflare redeploys the API by itself on every push to `main`.
+If it ever shows the app page instead of JSON, open the project in Cloudflare → **Deployments → Retry deployment** (or **Settings → Build** and make sure the deploy command is `npx wrangler deploy`).
 Check: https://timesheet.kollinmeubanks.workers.dev should show `{"ok":true,"app":"TimeSheet API","setup":false}`.
 
 ## Connect the app
