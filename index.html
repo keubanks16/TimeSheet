@@ -93,6 +93,7 @@
   .sc .presets button.proj{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.3px}
   .sc .presets button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .sc .presets button.dim{opacity:.55}
+  .sc .presets button.other{border-style:dashed;font-style:italic}
   .preset-row{display:grid;grid-template-columns:80px 1fr 40px;gap:6px;margin-bottom:6px}
   .preset-row input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;font-size:15px}
   .preset-row button{border:0;background:none;color:var(--danger);font-size:18px}
@@ -554,10 +555,15 @@ else (function(){
     const sc=state.settings.shortcuts||defaultShortcuts();
     $('#scTasks').innerHTML=sc.tasks.map(t=>`<button type="button" data-t="${esc(t)}">${esc(t)}</button>`).join('')||'<span class="hint">None — add some in Settings</span>';
     $('#scProjects').innerHTML=sc.projects.map(p=>`<button type="button" class="proj ${selProject===p?'on':''}" data-p="${esc(p)}">${esc(p)}</button>`).join('')||'<span class="hint">None — add some in Settings</span>';
-    $('#scProjectTasks').innerHTML=sc.projectTasks.map(t=>`<button type="button" class="${selProject?'':'dim'}" data-pt="${esc(t)}">${esc(t)}</button>`).join('')||'<span class="hint">None — add some in Settings</span>';
+    $('#scProjectTasks').innerHTML=sc.projectTasks.map(t=>`<button type="button" class="${selProject?'':'dim'}" data-pt="${esc(t)}">${esc(t)}</button>`).join('')+`<button type="button" class="other ${selProject?'':'dim'}" data-other>Other…</button>`;
     document.querySelectorAll('#scTasks button').forEach(b=>b.onclick=()=>appendDesc(b.dataset.t));
     document.querySelectorAll('#scProjects button').forEach(b=>b.onclick=()=>{ selProject=selProject===b.dataset.p?null:b.dataset.p; renderShortcuts(); });
-    document.querySelectorAll('#scProjectTasks button').forEach(b=>b.onclick=()=>{ if(!selProject){ toast('Pick a project number first'); return; } appendDesc(`${selProject} ${b.dataset.pt}`); });
+    document.querySelectorAll('#scProjectTasks button[data-pt]').forEach(b=>b.onclick=()=>{ if(!selProject){ toast('Pick a project number first'); return; } appendDesc(`${selProject} ${b.dataset.pt}`); });
+    $('#scProjectTasks [data-other]').onclick=()=>{
+      if(!selProject){ toast('Pick a project number first'); return; }
+      appendDesc(selProject); const ta=$('#eDesc'); ta.value+=' ';
+      ta.focus(); const end=ta.value.length; ta.setSelectionRange(end,end); ta.scrollTop=ta.scrollHeight;
+    };
   }
   document.querySelectorAll('#notePresets button').forEach(b=>b.onclick=()=>{ $('#eNote').value=$('#eNote').value===b.dataset.note?'':b.dataset.note; });
   function openEntry(id){
