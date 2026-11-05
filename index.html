@@ -542,11 +542,14 @@ else (function(){
 
   // description shortcuts
   let selProject=null;
+  // "BC Help,GDC171D OAC ,, " -> "BC Help, GDC171D OAC"
+  const tidyDesc=v=>String(v||'').split('\n').map(line=>line.split(',').map(p=>p.trim()).filter(Boolean).join(', ')).filter(Boolean).join('\n');
   function appendDesc(text){
-    const ta=$('#eDesc'); const cur=ta.value.trim();
-    ta.value=cur?cur.replace(/[,\s]+$/,'')+', '+text:text;
+    const ta=$('#eDesc'); const cur=tidyDesc(ta.value);
+    ta.value=cur?cur+', '+text:text;
     ta.dispatchEvent(new Event('input'));
   }
+  $('#eDesc').addEventListener('blur',()=>{ $('#eDesc').value=tidyDesc($('#eDesc').value); });
   function renderShortcuts(){
     const sc=state.settings.shortcuts||defaultShortcuts();
     $('#scTasks').innerHTML=sc.tasks.map(t=>`<button type="button" data-t="${esc(t)}">${esc(t)}</button>`).join('')||'<span class="hint">None — add some in Settings</span>';
@@ -571,7 +574,7 @@ else (function(){
     const m=currentMonth();
     const hours=$('#eHours').value===''?null:Number($('#eHours').value);
     const miles=$('#eMiles').value===''?null:Number($('#eMiles').value);
-    const data={date:$('#eDate').value||null,desc:$('#eDesc').value.trim(),hours,miles,note:$('#eNote').value.trim()};
+    const data={date:$('#eDate').value||null,desc:tidyDesc($('#eDesc').value),hours,miles,note:$('#eNote').value.trim()};
     if(!data.date&&!data.desc&&hours==null){ toast('Add a date or description first'); return; }
     data.updated_at=now(); data.deleted=0;
     if(editingId){ Object.assign(m.entries.find(x=>x.id===editingId),data); } else m.entries.push({id:uid(),...data});
@@ -605,7 +608,7 @@ else (function(){
     document.querySelectorAll('#presetList [data-del]').forEach(b=>b.onclick=()=>{ readPresetInputs(); state.settings.presets.splice(+b.dataset.del,1); renderPresetList(); });
   }
   function readPresetInputs(){ document.querySelectorAll('#presetList input').forEach(i=>{ const p=state.settings.presets[+i.dataset.i]; if(!p) return; p[i.dataset.k]=i.dataset.k==='miles'?Number(i.value)||0:i.value; }); }
-  const lines=v=>v.split('\n').map(s=>s.trim()).filter(Boolean);
+  const lines=v=>v.split('\n').map(s=>s.trim().replace(/^[,\s]+|[,\s]+$/g,'')).filter(Boolean);
   $('#btnSettings').onclick=()=>{ $('#sName').value=state.settings.name||''; $('#sRate').value=state.settings.rate; renderPresetList();
     const sc=state.settings.shortcuts||defaultShortcuts(); $('#sScTasks').value=sc.tasks.join('\n'); $('#sScProjects').value=sc.projects.join('\n'); $('#sScProjectTasks').value=sc.projectTasks.join('\n');
     openSheet('#settingsSheet'); };
@@ -623,7 +626,7 @@ else (function(){
   async function exportExcel(months){
     const list=months.filter(m=>live(m).length||months.length===1);
     if(!list.length){ toast('Nothing to export yet'); return; }
-    const bytes=XLSX.buildWorkbook(list.map(m=>({year:m.year,month:m.month,entries:live(m)})),{name:state.settings.name,rate:state.settings.rate});
+    const bytes=XLSX.buildWorkbook(list.map(m=>({year:m.year,month:m.month,entries:live(m).map(e=>({...e,desc:tidyDesc(e.desc)}))})),{name:state.settings.name,rate:state.settings.rate});
     const base=`${state.settings.name?state.settings.name+' ':''}HOURLY TRACKING${list.length===1?' '+MONTHS[list[0].month-1]+' '+list[0].year:''}`.trim();
     const type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     const file=new File([bytes],base+'.xlsx',{type});
