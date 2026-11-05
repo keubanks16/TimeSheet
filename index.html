@@ -52,6 +52,7 @@
 
   .entry{display:grid;grid-template-columns:62px 1fr auto;gap:10px;padding:12px 0;border-bottom:1px solid var(--line);align-items:start;width:100%;background:none;border-left:0;border-right:0;border-top:0;text-align:left;color:inherit}
   .entry:last-child{border-bottom:0}
+  .entry.blank{opacity:.55;padding:8px 0}
   .entry .d{font-weight:700;font-size:14px;line-height:1.2}
   .entry .d small{display:block;font-weight:500;color:var(--muted);font-size:12px}
   .entry .desc{font-size:14px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
@@ -475,10 +476,35 @@ else (function(){
   function currentMonth(){ const m=state.months.find(m=>m.id===state.current); return m&&!m.deleted?m:null; }
   function findMonth(y,mo){ return state.months.find(m=>!m.deleted&&m.year===y&&m.month===mo); }
   function newMonth(y,mo){ const m={id:uid(),year:y,month:mo,entries:[],updated_at:now(),deleted:0}; state.months.push(m); return m; }
+  const isBlank=e=>!e.desc&&(e.hours==null||e.hours==='')&&(e.miles==null||e.miles===''||Number(e.miles)===0)&&!e.note;
+  // add a blank row for every Monday–Friday in the month that doesn't already have an entry
+  function fillWeekdays(m){
+    const have=new Set(live(m).filter(e=>e.date).map(e=>e.date)); let added=0; const t=now();
+    const days=new Date(m.year,m.month,0).getDate();
+    for(let d=1; d<=days; d++){
+      const dt=new Date(m.year,m.month-1,d); if(dt.getDay()===0||dt.getDay()===6) continue;
+      const iso=`${m.year}-${String(m.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      if(have.has(iso)) continue;
+      m.entries.push({id:uid(),date:iso,desc:'',hours:null,miles:null,note:'',updated_at:t,deleted:0}); added++;
+    }
+    if(added) m.updated_at=t;
+    return added;
+  }
+  function missingWeekdays(m){
+    const have=new Set(live(m).filter(e=>e.date).map(e=>e.date)); let n=0; const days=new Date(m.year,m.month,0).getDate();
+    for(let d=1; d<=days; d++){ const dt=new Date(m.year,m.month-1,d); if(dt.getDay()===0||dt.getDay()===6) continue; if(!have.has(`${m.year}-${String(m.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`)) n++; }
+    return n;
+  }
+  // month for a calendar date, created (and pre-filled with weekdays) if it doesn't exist yet
+  function monthForDate(iso){
+    const [y,mo]=iso.split('-').map(Number); if(!y||!mo) return null;
+    let m=findMonth(y,mo); if(!m){ m=newMonth(y,mo); fillWeekdays(m); }
+    return m;
+  }
   function ensureCurrent(){
     if(currentMonth()) return;
     const ms=sortedMonths(); if(ms.length){ state.current=ms[ms.length-1].id; return; }
-    const d=new Date(); const m=newMonth(d.getFullYear(),d.getMonth()+1); state.current=m.id; save();
+    const d=new Date(); const m=newMonth(d.getFullYear(),d.getMonth()+1); fillWeekdays(m); state.current=m.id; save();
   }
   function monthTotals(m){ let h=0,mi=0; for(const e of live(m)){ h+=Number(e.hours)||0; mi+=Number(e.miles)||0; } return {h,mi,rb:mi*(Number(state.settings.rate)||0)}; }
 
@@ -502,13 +528,15 @@ else (function(){
       <div class="card" style="padding:4px 14px">
         ${entries.length?entries.map(e=>{
           const d=e.date?fmtDate(e.date):{md:'—',dow:''}; const rb=(Number(e.miles)||0)*(Number(state.settings.rate)||0);
-          return `<button class="entry" data-e="${e.id}">
+          const blank=isBlank(e);
+          return `<button class="entry ${blank?'blank':''}" data-e="${e.id}">
             <div class="d">${d.md}<small>${d.dow}</small></div>
-            <div><div class="desc">${esc(e.desc||'')||'<span style="color:var(--muted)">No description</span>'}</div>${e.note?`<span class="note">${esc(e.note)}</span>`:''}</div>
+            <div><div class="desc">${esc(e.desc||'')||`<span style="color:var(--muted)">${blank?'Tap to fill in':'No description'}</span>`}</div>${e.note?`<span class="note">${esc(e.note)}</span>`:''}</div>
             <div class="nums">${e.hours!=null&&e.hours!==''?`<b>${fmtNum(Number(e.hours))}</b> hr`:'<span class="mi">— hr</span>'}${Number(e.miles)?`<div class="mi">${fmtNum(Number(e.miles))} mi</div><div class="rb">${money(rb)}</div>`:''}</div>
           </button>`; }).join('')
         :`<div class="empty">No entries yet for ${MONTHS[m.month-1]}.<br>Tap <b>+</b> to add your first day.</div>`}
       </div>
+      ${missingWeekdays(m)?`<button class="btn" id="fillWeekdays" style="width:100%;margin-bottom:10px">Add missing weekdays (${missingWeekdays(m)})</button>`:''}
       <div class="row">
         <button class="btn" id="editMonth">Edit month</button>
         <button class="btn primary" id="exportMonth">Export ${MONTHS[m.month-1].slice(0,3)} to Excel</button>
@@ -516,6 +544,7 @@ else (function(){
     document.querySelectorAll('.chip[data-m]').forEach(b=>b.onclick=()=>{ state.current=b.dataset.m; save(); render(); });
     $('#addMonth').onclick=()=>openMonthSheet(null);
     $('#editMonth').onclick=()=>openMonthSheet(m);
+    const fw=$('#fillWeekdays'); if(fw) fw.onclick=()=>{ const n=fillWeekdays(m); save(); render(); toast(`Added ${n} weekday${n===1?'':'s'}`); };
     $('#exportMonth').onclick=()=>exportExcel([m]);
     document.querySelectorAll('.entry').forEach(b=>b.onclick=()=>openEntry(b.dataset.e));
   }
@@ -530,9 +559,15 @@ else (function(){
   let editingId=null;
   function nextWorkDate(m){
     const dated=m.entries.filter(e=>e.date).map(e=>e.date).sort();
+    const today=todayIso();
+    // viewing the current month: default to today
+    if(today.startsWith(monthId(m.year,m.month))) return today;
+    // otherwise the first pre-filled day that's still blank, then the next work day after the last entry
+    const blank=live(m).filter(e=>e.date&&isBlank(e)).map(e=>e.date).sort();
+    if(blank.length) return blank[0];
     let d;
     if(dated.length){ const [y,mo,da]=dated[dated.length-1].split('-').map(Number); d=new Date(y,mo-1,da); d.setDate(d.getDate()+1); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()+1); }
-    else { const now=new Date(); d=(now.getFullYear()===m.year&&now.getMonth()+1===m.month)?now:new Date(m.year,m.month-1,1); }
+    else d=new Date(m.year,m.month-1,1);
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
   function renderPresets(sel){
@@ -583,8 +618,19 @@ else (function(){
     const data={date:$('#eDate').value||null,desc:tidyDesc($('#eDesc').value),hours,miles,note:$('#eNote').value.trim()};
     if(!data.date&&!data.desc&&hours==null){ toast('Add a date or description first'); return; }
     data.updated_at=now(); data.deleted=0;
-    if(editingId){ Object.assign(m.entries.find(x=>x.id===editingId),data); } else m.entries.push({id:uid(),...data});
+    // the entry belongs to the month its date falls in, even if that's not the month on screen
+    const target=(data.date&&monthForDate(data.date))||m;
+    if(editingId){
+      const e=m.entries.find(x=>x.id===editingId);
+      Object.assign(e,data);
+      if(target!==m){ m.entries=m.entries.filter(x=>x!==e); target.entries.push(e); m.updated_at=target.updated_at=now(); }
+    } else {
+      // if that day was pre-filled as a blank weekday, fill it in instead of adding a second row
+      const slot=data.date?target.entries.find(x=>!x.deleted&&x.date===data.date&&isBlank(x)):null;
+      if(slot) Object.assign(slot,data); else target.entries.push({id:uid(),...data});
+    }
     save(); closeSheets(); render();
+    if(target!==m) toast(`Saved to ${MONTHS[target.month-1]} ${target.year}`);
   };
   $('#eDelete').onclick=()=>{ if(!editingId) return; if(!confirm('Delete this entry?')) return; const m=currentMonth(); const e=m.entries.find(x=>x.id===editingId); if(e){ e.deleted=1; e.updated_at=now(); } save(); closeSheets(); render(); };
 
@@ -603,7 +649,7 @@ else (function(){
     const clash=findMonth(year,month);
     if(clash&&clash!==editingMonth){ toast(`${MONTHS[month-1]} ${year} already exists`); return; }
     let m=editingMonth;
-    if(m){ Object.assign(m,{year,month,updated_at:now()}); } else m=newMonth(year,month);
+    if(m){ Object.assign(m,{year,month,updated_at:now()}); } else { m=newMonth(year,month); fillWeekdays(m); }
     state.current=m.id; save(); closeSheets(); render();
   };
   $('#mDelete').onclick=()=>{ if(!editingMonth) return; if(!confirm(`Delete ${MONTHS[editingMonth.month-1]} ${editingMonth.year} and its ${live(editingMonth).length} entries?`)) return; const t=now(); editingMonth.deleted=1; editingMonth.updated_at=t; for(const e of editingMonth.entries){ e.deleted=1; e.updated_at=t; } state.current=null; save(); closeSheets(); render(); };
@@ -630,7 +676,7 @@ else (function(){
     setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },1500);
   }
   async function exportExcel(months){
-    const list=months.filter(m=>live(m).length||months.length===1);
+    const list=months.filter(m=>live(m).some(e=>!isBlank(e))||months.length===1);
     if(!list.length){ toast('Nothing to export yet'); return; }
     const bytes=XLSX.buildWorkbook(list.map(m=>({year:m.year,month:m.month,entries:live(m).map(e=>({...e,desc:tidyDesc(e.desc)}))})),{name:state.settings.name,rate:state.settings.rate});
     const base=`${state.settings.name?state.settings.name+' ':''}HOURLY TRACKING${list.length===1?' '+MONTHS[list[0].month-1]+' '+list[0].year:''}`.trim();
@@ -666,7 +712,9 @@ else (function(){
           if(e.deleted) continue;
           const dup=live(m).find(x=>x.date===e.date&&(x.desc||'')===(e.desc||'')&&Number(x.hours||0)===Number(e.hours||0));
           if(dup) continue;
-          m.entries.push({id:uid(),date:e.date||null,desc:e.desc||'',hours:e.hours??null,miles:e.miles??null,note:e.note||'',updated_at:t,deleted:0});
+          const data={date:e.date||null,desc:e.desc||'',hours:e.hours??null,miles:e.miles??null,note:e.note||'',updated_at:t,deleted:0};
+          const slot=e.date?live(m).find(x=>x.date===e.date&&isBlank(x)):null;
+          if(slot) Object.assign(slot,data); else m.entries.push({id:uid(),...data});
         }
       }
       if(settings){ const keep=state.settings; state.settings={...keep,...settings,updated_at:t}; }
