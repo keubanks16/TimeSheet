@@ -4,6 +4,9 @@
 Pushing to `main` runs **Deploy TimeSheet to GitHub Pages** → https://keubanks16.github.io/TimeSheet/
 (If the first run fails, enable Pages once: repo **Settings → Pages → Source: GitHub Actions**.)
 
+## Updates on the phone
+The Pages workflow stamps the commit id into `index.html` (`__BUILD__`). The app re-checks that stamp whenever it comes to the foreground and shows a "New version available" bar; tapping it reloads. Nothing to bump by hand.
+
 ## API + database (Cloudflare Worker + D1) — one-time setup, no tokens
 The D1 database `timesheet` (id in `worker/wrangler.toml`) already exists with its tables.
 
