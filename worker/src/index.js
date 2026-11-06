@@ -33,7 +33,7 @@ async function getPasscodeHash(env) {
 }
 async function fullState(env) {
   const [months, entries, settings] = await Promise.all([
-    env.DB.prepare('SELECT id, year, month, updated_at, deleted FROM months').all(),
+    env.DB.prepare('SELECT id, year, month, updated_at, deleted, mileage_status, mileage_status_date FROM months').all(),
     env.DB.prepare('SELECT id, month_id, date, description, hours, miles, note, updated_at, deleted FROM entries').all(),
     env.DB.prepare("SELECT value, updated_at FROM meta WHERE key='settings'").first(),
   ]);
@@ -50,8 +50,9 @@ const str = v => (v === null || v === undefined ? null : String(v));
 async function applySync(env, body) {
   const stmts = [];
   const upMonth = env.DB.prepare(
-    `INSERT INTO months (id, year, month, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5)
-     ON CONFLICT(id) DO UPDATE SET year=excluded.year, month=excluded.month, updated_at=excluded.updated_at, deleted=excluded.deleted
+    `INSERT INTO months (id, year, month, updated_at, deleted, mileage_status, mileage_status_date) VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6, 'none'), ?7)
+     ON CONFLICT(id) DO UPDATE SET year=excluded.year, month=excluded.month, updated_at=excluded.updated_at, deleted=excluded.deleted,
+       mileage_status=COALESCE(?6, months.mileage_status), mileage_status_date=CASE WHEN ?6 IS NULL THEN months.mileage_status_date ELSE ?7 END
      WHERE excluded.updated_at > months.updated_at`);
   const upEntry = env.DB.prepare(
     `INSERT INTO entries (id, month_id, date, description, hours, miles, note, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -65,7 +66,8 @@ async function applySync(env, body) {
 
   for (const m of body.months || []) {
     if (!m || !m.id) continue;
-    stmts.push(upMonth.bind(String(m.id), num(m.year) || 0, num(m.month) || 0, num(m.updated_at) || 0, m.deleted ? 1 : 0));
+    const ms = ['none', 'submitted', 'paid'].includes(m.mileage_status) ? m.mileage_status : null; // null = old client, keep what's stored
+    stmts.push(upMonth.bind(String(m.id), num(m.year) || 0, num(m.month) || 0, num(m.updated_at) || 0, m.deleted ? 1 : 0, ms, ms ? str(m.mileage_status_date) : null));
   }
   for (const e of body.entries || []) {
     if (!e || !e.id || !e.month_id) continue;
