@@ -698,31 +698,33 @@ else (function(){
     const mlist=arr=>{ const a=[...arr].sort((x,y)=>x.year-y.year||x.month-y.month).map(m=>MONTHS[m.month-1].slice(0,3)); if(!a.length) return ''; if(a.length>3) return a[0]+'–'+a[a.length-1]; return a.join(', '); };
     const paidList=arr=>[...arr].sort((x,y)=>x.year-y.year||x.month-y.month).map(m=>MONTHS[m.month-1].slice(0,3)+(m.mileage_status_date?' on '+fd(m.mileage_status_date):'')).join(', ');
     $('#mileageView').innerHTML=`
-      <div class="hero">
+      <div class="hero" style="grid-template-columns:1fr">
         <div class="tot"><b>${money(owed+submitted)}</b><span>Owed to you${owedMs.length?' · '+mlist(owedMs):''}</span></div>
-        <div class="tot"><b>${money(paid)}</b><span>${paidMs.length?'Paid · '+paidList(paidMs):'Paid'}</span></div>
       </div>
       <p class="hint" style="margin:0 2px 10px">${money(owed)} not submitted yet · ${money(submitted)} submitted, waiting on payment · rate $${rate}/mi</p>
-      <div class="row" style="margin-bottom:12px"><button class="btn" id="mileageSummaryPdf" type="button">Summary PDF (all months)</button></div>
-      ${ms.length?ms.map(({m,trips,mi,amt})=>{ const st=m.mileage_status||'none'; const cls=st==='paid'?'paid':st==='submitted'?'sub':'';
+      <div class="row" style="margin-bottom:12px"><button class="btn" id="mileageSummaryPdf" type="button">Owed summary PDF</button></div>
+      ${ms.filter(x=>x.m.mileage_status!=='paid').map(({m,trips,mi,amt})=>{ const st=m.mileage_status||'none'; const cls=st==='submitted'?'sub':'';
         return `<div class="mcard" data-m="${m.id}">
           <div class="mh"><div><b>${MONTHS[m.month-1]} ${m.year}</b><div class="mdate">${trips.length} trip${trips.length===1?'':'s'} · ${fmtNum(mi)} mi</div></div>
             <div class="amt">${money(amt)}<small><span class="pill ${cls}">${STATUS[st]}</span></small></div></div>
           <div class="seg">
             <button type="button" data-st="none" class="${st==='none'?'on':''}">Not submitted</button>
             <button type="button" data-st="submitted" class="${st==='submitted'?'on sub':''}">Submitted</button>
-            <button type="button" data-st="paid" class="${st==='paid'?'on paid':''}">Paid</button>
+            <button type="button" data-st="paid">Paid ✓</button>
           </div>
-          <div class="mdate">${st==='paid'&&m.mileage_status_date?'Paid '+fd(m.mileage_status_date):''}</div>
+          <div class="mdate">Tapping Paid archives the month.</div>
           ${trips.length?`<div class="row" style="margin-top:6px"><button class="btn" data-pdf="${m.id}" type="button" style="padding:9px 12px">Mileage report PDF</button></div><details class="trips"><summary>Trips</summary>${trips.map(e=>{ const d=fmtDate(e.date||''); return `<div class="trip"><div class="t1">${e.date?d.md:'—'}</div><div>${esc(siteFor(e)||e.desc||'')}</div><div class="t3">${fmtNum(Number(e.miles))} mi <small>${money(Number(e.miles)*rate)}</small></div></div>`; }).join('')}</details>`:''}
-        </div>`; }).join(''):'<div class="empty">No months yet.</div>'}`;
+        </div>`; }).join('')||'<div class="empty">Nothing outstanding.</div>'}
+      ${paidMs.length?`<details class="trips" style="margin:4px 2px"><summary>Paid &amp; archived (${paidMs.length})</summary>
+        ${[...paidMs].sort((a,b)=>b.year-a.year||b.month-a.month).map(m=>{ const x=ms.find(x=>x.m===m); return `<div class="trip" style="grid-template-columns:1fr auto auto;align-items:center"><div class="t1">${MONTHS[m.month-1]} ${m.year}</div><div class="t3">${fmtNum(x.mi)} mi <small>${money(x.amt)}</small></div><button type="button" class="btn" data-unarchive="${m.id}" style="flex:0;padding:6px 10px;font-size:12px">Unarchive</button></div>`; }).join('')}
+      </details>`:''}`;
     document.querySelectorAll('#mileageView .seg button').forEach(b=>b.onclick=()=>{
       const m=state.months.find(x=>x.id===b.closest('.mcard').dataset.m); if(!m) return;
       const st=b.dataset.st; if(m.mileage_status===st) return;
-      let date=null; if(st==='paid'){ const d=prompt('Paid on what date? (MM/DD/YYYY)', new Date().toLocaleDateString('en-US')); if(d===null) return; const mm=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(d.trim()); if(mm){ const y=mm[3].length===2?2000+ +mm[3]:+mm[3]; date=`${y}-${String(mm[1]).padStart(2,'0')}-${String(mm[2]).padStart(2,'0')}`; } else date=todayIso(); }
-      else if(st==='submitted') date=todayIso();
-      m.mileage_status=st; m.mileage_status_date=date; m.updated_at=now(); save(); renderMileage();
+      m.mileage_status=st; m.mileage_status_date=st==='none'?null:todayIso(); m.updated_at=now(); save(); renderMileage();
+      if(st==='paid') toast(`${MONTHS[m.month-1]} archived`);
     });
+    document.querySelectorAll('#mileageView [data-unarchive]').forEach(b=>b.onclick=()=>{ const m=state.months.find(x=>x.id===b.dataset.unarchive); if(!m) return; m.mileage_status='submitted'; m.mileage_status_date=todayIso(); m.updated_at=now(); save(); renderMileage(); });
     document.querySelectorAll('#mileageView [data-pdf]').forEach(b=>b.onclick=()=>{ const x=ms.find(x=>x.m.id===b.dataset.pdf); if(x) mileageReportPdf(x); });
     $('#mileageSummaryPdf').onclick=()=>mileageSummaryPdf(ms);
   }
@@ -737,7 +739,7 @@ else (function(){
   function mileageReportPdf({m,trips,mi,amt}){
     const rate=Number(state.settings.rate)||0; const name=(state.settings.name||'').trim();
     const rows=trips.map(e=>({date:fdLong(e.date),site:siteFor(e)||'',desc:e.desc||'',miles:fmtNum(Number(e.miles)),amt:money(Number(e.miles)*rate)}));
-    const lines=[`Rate: $${rate.toFixed(2)} per mile`]; if(m.mileage_status==='paid'&&m.mileage_status_date) lines.push(`Paid on ${fdLong(m.mileage_status_date)}`);
+    const lines=[`Rate: $${rate.toFixed(2)} per mile`];
     const doc=PDF.tableReport({ title:`Mileage Report - ${MONTHS[m.month-1]} ${m.year}`, subtitle:name, lines,
       cols:[{key:'date',label:'Date',w:70},{key:'site',label:'Site',w:90},{key:'desc',label:'Description',w:214},{key:'miles',label:'Miles',w:60,align:'right'},{key:'amt',label:'Amount',w:70,align:'right'}],
       rows, totalRow:{date:'Total',site:'',desc:`${trips.length} trip${trips.length===1?'':'s'}`,miles:fmtNum(mi),amt:money(amt)},
@@ -746,15 +748,15 @@ else (function(){
   }
   function mileageSummaryPdf(ms){
     const rate=Number(state.settings.rate)||0; const name=(state.settings.name||'').trim();
-    const list=[...ms].reverse().filter(x=>x.trips.length);
-    let owed=0,paid=0;
-    const rows=list.map(({m,trips,mi,amt})=>{ const st=m.mileage_status||'none'; if(st==='paid') paid+=amt; else owed+=amt;
-      return {month:`${MONTHS[m.month-1]} ${m.year}`,trips:String(trips.length),miles:fmtNum(mi),amt:money(amt),status:st==='paid'?`Paid ${m.mileage_status_date?fdLong(m.mileage_status_date):''}`.trim():st==='submitted'?'Submitted':'Not submitted'}; });
-    const doc=PDF.tableReport({ title:'Mileage Summary', subtitle:name, lines:[`Rate: $${rate.toFixed(2)} per mile`,`Owed: ${money(owed)}    Paid: ${money(paid)}`],
+    const list=[...ms].reverse().filter(x=>x.trips.length&&x.m.mileage_status!=='paid');
+    let owed=0;
+    const rows=list.map(({m,trips,mi,amt})=>{ const st=m.mileage_status||'none'; owed+=amt;
+      return {month:`${MONTHS[m.month-1]} ${m.year}`,trips:String(trips.length),miles:fmtNum(mi),amt:money(amt),status:st==='submitted'?'Submitted':'Not submitted'}; });
+    const doc=PDF.tableReport({ title:'Mileage Owed', subtitle:name, lines:[`Rate: $${rate.toFixed(2)} per mile`,`Total owed: ${money(owed)}`],
       cols:[{key:'month',label:'Month',w:120},{key:'trips',label:'Trips',w:50,align:'right'},{key:'miles',label:'Miles',w:70,align:'right'},{key:'amt',label:'Amount',w:90,align:'right'},{key:'status',label:'Status',w:174}],
-      rows, totalRow:{month:'Total',trips:String(list.reduce((a,x)=>a+x.trips.length,0)),miles:fmtNum(list.reduce((a,x)=>a+x.mi,0)),amt:money(owed+paid),status:''},
+      rows, totalRow:{month:'Total',trips:String(list.reduce((a,x)=>a+x.trips.length,0)),miles:fmtNum(list.reduce((a,x)=>a+x.mi,0)),amt:money(owed),status:''},
       footer:`Generated ${new Date().toLocaleDateString('en-US')} - Time Sheet` });
-    sharePdf(doc.bytes(),'Mileage Summary.pdf');
+    sharePdf(doc.bytes(),'Mileage Owed.pdf');
   }
   function renderTime(){
     ensureCurrent();
