@@ -95,9 +95,15 @@
   .sc .presets button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .sc .presets button.dim{opacity:.55}
   .sc .presets button.other{border-style:dashed;font-style:italic}
-  .preset-row{display:grid;grid-template-columns:80px 1fr 40px;gap:6px;margin-bottom:6px}
-  .preset-row input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;font-size:15px}
+  .preset-row{display:grid;grid-template-columns:72px 1fr 40px 36px;gap:6px;margin-bottom:6px;align-items:center}
+  .preset-row input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;font-size:15px;min-width:0}
   .preset-row button{border:0;background:none;color:var(--danger);font-size:18px}
+  .preset-row button.pin{color:var(--muted);font-size:17px;border:1px solid var(--line);border-radius:8px;height:38px}
+  .preset-row button.pin.on{color:var(--good);border-color:var(--good)}
+  .vlink{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .vlink:last-child{border-bottom:0}
+  .vlink code{font-size:11px;color:var(--muted);word-break:break-all;display:block}
+  .vlink button{border:1px solid var(--line);background:var(--soft);border-radius:999px;padding:6px 10px;font-size:12px;font-weight:600;white-space:nowrap}
   .sect{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;margin:16px 0 8px}
   /* trips */
   .tripbar{display:flex;align-items:center;gap:10px;width:100%;border:0;border-radius:12px;background:var(--good);color:#fff;padding:10px 14px;margin:0 0 10px;font-weight:700;font-size:14px;text-align:left;box-shadow:var(--shadow)}
@@ -214,9 +220,22 @@
   <div class="sect">Profile</div>
   <label class="f">Your name (used in the sheet title)<input type="text" id="sName" autocapitalize="words"></label>
   <label class="f">Mileage rate ($ per mile)<input type="number" id="sRate" inputmode="decimal" step="0.01" min="0"></label>
-  <div class="sect">Mileage presets</div>
+  <div class="sect">Mileage presets &amp; sites</div>
+  <p class="hint" style="margin-top:-4px">Tap 📍 on a preset to pin the facility's location (use it while you're there, or type its address). Pinned sites can be auto-logged below.</p>
   <div id="presetList"></div>
   <button class="btn" id="sAddPreset" type="button">+ Add preset</button>
+  <div class="sect">Auto-log site visits</div>
+  <label class="f" style="display:flex;align-items:center;gap:10px;font-weight:600"><input type="checkbox" id="sAuto" style="width:22px;height:22px;margin:0"> While the app is open: check my location every 10 min, Mon–Thu 9am–2pm. If I'm at a pinned site, put that site's miles on the day.</label>
+  <p class="hint">A web app can't check location while it's closed. For that, set up a phone automation (iPhone Shortcuts → Automation → "When I arrive") that opens one of these links — it works even with the app closed:</p>
+  <div id="visitLinks"></div>
+  <details class="hint" style="margin:-4px 0 12px"><summary style="font-weight:600;cursor:pointer">How to set up the arrival automation (per site)</summary>
+    <ol style="padding-left:18px;margin:6px 0">
+      <li>Shortcuts app → <b>Automation</b> → <b>+</b> → <b>Arrive</b>.</li>
+      <li>Location: search the prison / PDC address. Time range: <b>9:00 AM – 2:00 PM</b>. Choose <b>Run Immediately</b>, turn off "Notify When Run".</li>
+      <li>Next → <b>New Blank Automation</b> → add action <b>Get Contents of URL</b> → paste the site's link copied above.</li>
+      <li>Done. Repeat for each facility. The link only does anything Mon–Thu 9am–2pm, and never overwrites a day that already has miles.</li>
+    </ol>
+  </details>
   <div class="sect">Description shortcuts</div>
   <p class="hint" style="margin-top:0">One per line. Project tasks get combined with the selected project number (e.g. "GDC171F OAC").</p>
   <label class="f">Individual tasks<textarea id="sScTasks" autocapitalize="sentences" placeholder="GDC Meeting"></textarea></label>
@@ -840,16 +859,80 @@ else (function(){
 
   // settings
   function renderPresetList(){
-    $('#presetList').innerHTML=(state.settings.presets||[]).map((p,i)=>`<div class="preset-row"><input type="number" inputmode="decimal" value="${p.miles}" data-i="${i}" data-k="miles" placeholder="mi"><input type="text" value="${esc(p.label)}" data-i="${i}" data-k="label" placeholder="Label"><button type="button" data-del="${i}">✕</button></div>`).join('')||'<p class="hint">No presets yet.</p>';
-    document.querySelectorAll('#presetList [data-del]').forEach(b=>b.onclick=()=>{ readPresetInputs(); state.settings.presets.splice(+b.dataset.del,1); renderPresetList(); });
+    $('#presetList').innerHTML=(state.settings.presets||[]).map((p,i)=>`<div class="preset-row"><input type="number" inputmode="decimal" value="${p.miles}" data-i="${i}" data-k="miles" placeholder="mi"><input type="text" value="${esc(p.label)}" data-i="${i}" data-k="label" placeholder="Label"><button type="button" class="pin ${p.lat!=null?'on':''}" data-pin="${i}" title="${p.lat!=null?'Location pinned':'Pin location'}">📍</button><button type="button" data-del="${i}">✕</button></div>`).join('')||'<p class="hint">No presets yet.</p>';
+    document.querySelectorAll('#presetList [data-del]').forEach(b=>b.onclick=()=>{ readPresetInputs(); state.settings.presets.splice(+b.dataset.del,1); renderPresetList(); renderVisitLinks(); });
+    document.querySelectorAll('#presetList [data-pin]').forEach(b=>b.onclick=()=>pinPreset(+b.dataset.pin));
+    renderVisitLinks();
   }
+  async function pinPreset(i){
+    readPresetInputs(); const p=state.settings.presets[i]; if(!p) return;
+    if(p.lat!=null){
+      if(confirm(`${p.label||'This site'} is pinned at ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)} (${p.r||1.5} mi radius).\n\nOK = re-pin it, Cancel = keep as is.`)){ /* fall through to re-pin */ } else return;
+    }
+    const addr=prompt(`Pin ${p.label||'this site'}:\n\n• Leave blank and tap OK to use your CURRENT location\n• or type the facility address to look it up`,'');
+    if(addr===null) return;
+    let pt=null;
+    if(addr.trim()){
+      try{ const r=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(addr)}`,{headers:{'Accept':'application/json'}}); const j=await r.json(); if(j[0]) pt={lat:Number(j[0].lat),lng:Number(j[0].lon),name:j[0].display_name}; }catch(e){}
+      if(!pt){ toast('Address not found — try a street address'); return; }
+      if(!confirm(`Found:\n${pt.name}\n\nPin ${p.label||'site'} here?`)) return;
+    } else {
+      toast('Getting your location…');
+      pt=await new Promise(res=>navigator.geolocation.getCurrentPosition(g=>res({lat:g.coords.latitude,lng:g.coords.longitude}),()=>res(null),{enableHighAccuracy:true,timeout:20000,maximumAge:60000}));
+      if(!pt){ toast('Could not get your location'); return; }
+    }
+    p.lat=pt.lat; p.lng=pt.lng; p.r=p.r||1.5; renderPresetList(); toast(`${p.label||'Site'} pinned`);
+  }
+  function visitUrl(p){ return `${(syncCfg.url||'').replace(/\/+$/,'')}/api/visit?pass=${encodeURIComponent(syncCfg.passcode||'')}&site=${encodeURIComponent(p.label||'')}&miles=${p.miles}`; }
+  function renderVisitLinks(){
+    const el=$('#visitLinks'); if(!el) return;
+    const ps=(state.settings.presets||[]).filter(p=>p.label&&p.miles>0);
+    if(!syncCfg.passcode){ el.innerHTML='<p class="hint">Connect cloud sync above first — the automation links talk to your server.</p>'; return; }
+    el.innerHTML=ps.map((p,i)=>`<div class="vlink"><div><b>${esc(p.label)}</b> · ${p.miles} mi<code>${esc(visitUrl(p))}</code></div><button type="button" data-copy="${i}">Copy link</button></div>`).join('')||'<p class="hint">Add a mileage preset first.</p>';
+    el.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{ const p=ps[+b.dataset.copy]; try{ await navigator.clipboard.writeText(visitUrl(p)); toast('Link copied'); }catch(e){ prompt('Copy this link:',visitUrl(p)); } });
+  }
+
+  // ---------- auto-log site visits while the app is open (Mon–Thu, 9am–2pm, every 10 min) ----------
+  const VISIT_SEEN_KEY='timesheet_visit_seen_v1';
+  const inVisitWindow=(d=new Date())=>{ const w=d.getDay(); return w>=1&&w<=4&&d.getHours()>=9&&d.getHours()<14; };
+  function recordVisit(p,source){
+    const iso=todayIso(); const m=monthForDate(iso);
+    const seen=(()=>{ try{ return JSON.parse(localStorage.getItem(VISIT_SEEN_KEY))||{}; }catch(e){ return {}; } })();
+    if(seen[iso]===p.label) return false;
+    const rows=live(m).filter(e=>e.date===iso);
+    if(rows.some(e=>Number(e.miles)>0)){ seen[iso]=p.label; localStorage.setItem(VISIT_SEEN_KEY,JSON.stringify(seen)); return false; }
+    let e=rows[0];
+    if(!e){ e={id:uid(),date:iso,desc:'',hours:null,miles:null,note:'',updated_at:now(),deleted:0}; m.entries.push(e); }
+    e.miles=Number(p.miles); if(!(e.desc||'').trim()) e.desc=p.label; e.updated_at=now(); m.updated_at=now();
+    seen[iso]=p.label; localStorage.setItem(VISIT_SEEN_KEY,JSON.stringify(seen));
+    save(); render(); toast(`At ${p.label} — ${p.miles} mi added to today`);
+    return true;
+  }
+  let lastAutoCheck=0;
+  function autoCheck(force){
+    if(state.settings.autoSites===false) return;
+    if(!force&&Date.now()-lastAutoCheck<9.5*60*1000) return;
+    if(!inVisitWindow()) return;
+    const sites=(state.settings.presets||[]).filter(p=>p.lat!=null&&p.miles>0&&p.label);
+    if(!sites.length||!navigator.geolocation) return;
+    lastAutoCheck=Date.now();
+    navigator.geolocation.getCurrentPosition(g=>{
+      const here={lat:g.coords.latitude,lng:g.coords.longitude};
+      let best=null,bd=Infinity;
+      for(const p of sites){ const d=haversineMi(here,p); if(d<=(p.r||1.5)&&d<bd){ best=p; bd=d; } }
+      if(best) recordVisit(best,'auto');
+    },()=>{},{enableHighAccuracy:true,timeout:25000,maximumAge:5*60*1000});
+  }
+  setInterval(()=>autoCheck(false),60*1000);
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') autoCheck(false); });
+  setTimeout(()=>autoCheck(false),4000);
   function readPresetInputs(){ document.querySelectorAll('#presetList input').forEach(i=>{ const p=state.settings.presets[+i.dataset.i]; if(!p) return; p[i.dataset.k]=i.dataset.k==='miles'?Number(i.value)||0:i.value; }); }
   const lines=v=>v.split('\n').map(s=>s.trim().replace(/^[,\s]+|[,\s]+$/g,'')).filter(Boolean);
-  $('#btnSettings').onclick=()=>{ $('#sName').value=state.settings.name||''; $('#sRate').value=state.settings.rate; renderPresetList();
+  $('#btnSettings').onclick=()=>{ $('#sName').value=state.settings.name||''; $('#sRate').value=state.settings.rate; $('#sAuto').checked=state.settings.autoSites!==false; renderPresetList();
     const sc=state.settings.shortcuts||defaultShortcuts(); $('#sScTasks').value=sc.tasks.join('\n'); $('#sScProjects').value=sc.projects.join('\n'); $('#sScProjectTasks').value=sc.projectTasks.join('\n');
     openSheet('#settingsSheet'); };
   $('#sAddPreset').onclick=()=>{ readPresetInputs(); state.settings.presets.push({miles:0,label:''}); renderPresetList(); };
-  $('#sSave').onclick=()=>{ readPresetInputs(); state.settings.name=$('#sName').value.trim(); state.settings.rate=Number($('#sRate').value)||0; state.settings.presets=state.settings.presets.filter(p=>p.miles>0||p.label);
+  $('#sSave').onclick=()=>{ readPresetInputs(); state.settings.name=$('#sName').value.trim(); state.settings.rate=Number($('#sRate').value)||0; state.settings.autoSites=$('#sAuto').checked; state.settings.presets=state.settings.presets.filter(p=>p.miles>0||p.label);
     state.settings.shortcuts={tasks:lines($('#sScTasks').value),projects:lines($('#sScProjects').value),projectTasks:lines($('#sScProjectTasks').value)}; state.settings.updated_at=now(); save(); closeSheets(); render(); toast('Settings saved'); };
   $('#sWipe').onclick=()=>{ if(!confirm('Erase ALL months and entries on this device? Export a backup first if you need one.')) return; if(!confirm('Really erase everything?')) return; state=migrate(defaults()); saveLocal(); closeSheets(); render(); if(syncCfg.url&&syncCfg.passcode) sync('wipe'); };
 

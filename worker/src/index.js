@@ -5,6 +5,10 @@
 //   PUT  /api/passcode     -> { passcode }         change it (needs current passcode in Authorization)
 //   GET  /api/state        -> full state           (Authorization: Bearer <passcode>)
 //   POST /api/sync         -> upsert months / entries / settings by updated_at, returns full state
+//   GET|POST /api/visit    -> log a site visit: ?pass=..&site=Dodge%20SP&miles=148
+//                             (meant for an iPhone Shortcuts "When I arrive" automation). Only acts
+//                             Mon–Thu 9:00am–2:00pm Eastern (add &force=1 to test outside that window).
+//                             Sets that day's miles to the given number unless the day already has miles.
 //
 // Sync rule: every record carries updated_at (ms). A record only overwrites what's stored
 // when its updated_at is newer. Deletes are tombstones (deleted = 1) so they sync too.
@@ -75,6 +79,44 @@ async function applySync(env, body) {
   return stmts.length;
 }
 
+// Local (Eastern) date parts for a timestamp: { iso: 'YYYY-MM-DD', dow: 0-6 (Sun=0), hour, minute }
+function eastern(ts) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(ts));
+  const g = t => (parts.find(p => p.type === t) || {}).value;
+  const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(g('weekday'));
+  return { iso: `${g('year')}-${g('month')}-${g('day')}`, dow, hour: Number(g('hour')) % 24, minute: Number(g('minute')) };
+}
+const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+async function logVisit(env, p) {
+  const site = String(p.site || '').trim();
+  const miles = num(p.miles);
+  if (!site || miles === null || miles <= 0) return { error: 'site and miles are required' };
+  const ts = num(p.when) || Date.now();
+  const et = eastern(ts);
+  const inWindow = et.dow >= 1 && et.dow <= 4 && et.hour >= 9 && et.hour < 14;
+  if (!inWindow && !p.force) return { ok: true, action: 'ignored', reason: 'outside Mon–Thu 9am–2pm', date: et.iso, site };
+  const [y, mo] = et.iso.split('-').map(Number);
+  const t = Date.now();
+  let month = await env.DB.prepare('SELECT id FROM months WHERE year=?1 AND month=?2 AND deleted=0 ORDER BY updated_at ASC LIMIT 1').bind(y, mo).first();
+  if (!month) {
+    month = { id: newId() };
+    await env.DB.prepare('INSERT INTO months (id, year, month, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, 0)').bind(month.id, y, mo, t).run();
+  }
+  const rows = (await env.DB.prepare('SELECT id, description, miles FROM entries WHERE month_id=?1 AND date=?2 AND deleted=0 ORDER BY updated_at ASC').bind(month.id, et.iso).all()).results;
+  const withMiles = rows.find(r => Number(r.miles) > 0);
+  if (withMiles) return { ok: true, action: 'skipped', reason: 'day already has miles', date: et.iso, site, miles: Number(withMiles.miles) };
+  if (rows.length) {
+    const r = rows[0];
+    await env.DB.prepare('UPDATE entries SET miles=?1, description=?2, updated_at=?3 WHERE id=?4')
+      .bind(miles, (r.description || '').trim() ? r.description : site, t, r.id).run();
+    return { ok: true, action: 'updated', date: et.iso, site, miles };
+  }
+  await env.DB.prepare('INSERT INTO entries (id, month_id, date, description, hours, miles, note, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, 0)')
+    .bind(newId(), month.id, et.iso, site, miles, '', t).run();
+  return { ok: true, action: 'created', date: et.iso, site, miles };
+}
+
 export default {
   async fetch(req, env) {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
@@ -95,8 +137,16 @@ export default {
       // everything below needs the passcode
       const stored = await getPasscodeHash(env);
       if (!stored) return json({ error: 'No passcode set up yet', setup: false }, 401);
-      const given = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+      // /api/visit also accepts the passcode as ?pass= (or "pass" in the JSON body) so a Shortcut can call it with a plain URL
+      let visitParams = null;
+      if (path === '/api/visit') {
+        visitParams = Object.fromEntries(url.searchParams.entries());
+        if (req.method === 'POST') Object.assign(visitParams, await req.json().catch(() => ({})));
+      }
+      const given = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '') || (visitParams && visitParams.pass) || '';
       if (!given || (await hash(given)) !== stored) return json({ error: 'Wrong passcode' }, 401);
+
+      if (visitParams) return json(await logVisit(env, visitParams));
 
       if (path === '/api/state' && req.method === 'GET') return json(await fullState(env));
       if (path === '/api/sync' && req.method === 'POST') {
