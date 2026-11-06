@@ -609,12 +609,14 @@ else (function(){
   function renderMileage(){
     const rate=Number(state.settings.rate)||0;
     const ms=sortedMonths().reverse().map(m=>{ const trips=live(m).filter(e=>Number(e.miles)>0).sort((a,b)=>(a.date||'').localeCompare(b.date||'')); const mi=trips.reduce((a,e)=>a+Number(e.miles),0); return {m,trips,mi,amt:mi*rate}; });
-    let owed=0,submitted=0,paid=0; for(const x of ms){ if(x.m.mileage_status==='paid') paid+=x.amt; else if(x.m.mileage_status==='submitted') submitted+=x.amt; else owed+=x.amt; }
+    let owed=0,submitted=0,paid=0; const paidMs=[],owedMs=[];
+    for(const x of ms){ if(x.m.mileage_status==='paid'){ paid+=x.amt; if(x.amt>0) paidMs.push(x.m); } else { if(x.m.mileage_status==='submitted') submitted+=x.amt; else owed+=x.amt; if(x.amt>0) owedMs.push(x.m); } }
+    const mlist=arr=>{ const a=[...arr].sort((x,y)=>x.year-y.year||x.month-y.month).map(m=>MONTHS[m.month-1].slice(0,3)); if(!a.length) return ''; if(a.length>3) return a[0]+'–'+a[a.length-1]; return a.join(', '); };
     const fd=iso=>{ if(!iso) return ''; const [y,mo,d]=iso.split('-').map(Number); return `${mo}/${d}/${String(y).slice(2)}`; };
     $('#mileageView').innerHTML=`
       <div class="hero">
-        <div class="tot"><b>${money(owed+submitted)}</b><span>Owed to you</span></div>
-        <div class="tot"><b>${money(paid)}</b><span>Paid</span></div>
+        <div class="tot"><b>${money(owed+submitted)}</b><span>Owed to you${owedMs.length?' · '+mlist(owedMs):''}</span></div>
+        <div class="tot"><b>${money(paid)}</b><span>${paidMs.length?'Paid for '+mlist(paidMs):'Paid'}</span></div>
       </div>
       <p class="hint" style="margin:0 2px 12px">${money(owed)} not submitted yet · ${money(submitted)} submitted, waiting on payment · rate $${rate}/mi</p>
       ${ms.length?ms.map(({m,trips,mi,amt})=>{ const st=m.mileage_status||'none'; const cls=st==='paid'?'paid':st==='submitted'?'sub':'';
