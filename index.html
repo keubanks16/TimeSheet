@@ -35,7 +35,32 @@
   .iconbtn{background:rgba(255,255,255,.14);border:0;color:inherit;border-radius:10px;width:40px;height:40px;display:grid;place-items:center;font-size:18px}
   @media (prefers-color-scheme:dark){ .iconbtn{background:rgba(0,0,0,.18)} }
 
-  main{padding:14px 14px calc(110px + env(safe-area-inset-bottom));max-width:760px;margin:0 auto}
+  main{padding:14px 14px calc(150px + env(safe-area-inset-bottom));max-width:760px;margin:0 auto}
+  .tabs{position:fixed;left:0;right:0;bottom:0;z-index:7;display:flex;background:var(--card);border-top:1px solid var(--line);padding:6px 10px calc(6px + env(safe-area-inset-bottom))}
+  .tabs button{flex:1;border:0;background:none;color:var(--muted);font-weight:700;font-size:13px;padding:8px 4px;border-radius:10px;display:flex;flex-direction:column;align-items:center;gap:2px}
+  .tabs button span{font-size:20px;line-height:1}
+  .tabs button.on{color:var(--accent);background:var(--soft)}
+  .mcard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:12px}
+  .mcard .mh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .mcard .mh b{font-size:17px}
+  .mcard .mh .amt{font-size:19px;font-weight:700}
+  .mcard .mh .amt small{display:block;font-size:12px;color:var(--muted);font-weight:500;text-align:right}
+  .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--soft);border-radius:10px;padding:4px;margin:12px 0 6px}
+  .seg button{border:0;background:none;border-radius:8px;padding:9px 4px;font-size:13px;font-weight:600;color:var(--muted)}
+  .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .seg button.on.paid{background:var(--good);color:#fff}
+  .seg button.on.sub{background:#d9822b;color:#fff}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .pill.paid{background:var(--good);color:#fff}.pill.sub{background:#d9822b;color:#fff}
+  .mdate{font-size:12px;color:var(--muted);min-height:16px}
+  details.trips summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600;margin-top:8px;list-style:none;-webkit-tap-highlight-color:transparent}
+  details.trips summary::-webkit-details-marker{display:none}
+  details.trips summary::before{content:'▸ ';}
+  details[open].trips summary::before{content:'▾ ';}
+  .trip{display:grid;grid-template-columns:52px 1fr auto;gap:8px;font-size:13px;padding:7px 0;border-top:1px solid var(--line)}
+  .trip .t1{font-weight:700}.trip .t3{text-align:right;white-space:nowrap}.trip .t3 small{color:var(--muted)}
+  .hero{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+  .hero .tot b{font-size:22px}
 
   .monthbar{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
   .monthbar::-webkit-scrollbar{display:none}
@@ -69,7 +94,7 @@
   .btn.danger{color:var(--danger)}
   .btn:disabled{opacity:.5}
 
-  .fab{position:fixed;right:18px;bottom:calc(22px + env(safe-area-inset-bottom));z-index:6;width:58px;height:58px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-size:30px;line-height:1;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+  .fab{position:fixed;right:18px;bottom:calc(78px + env(safe-area-inset-bottom));z-index:6;width:58px;height:58px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-size:30px;line-height:1;box-shadow:0 8px 20px rgba(0,0,0,.25)}
 
   /* bottom sheet */
   .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:none}
@@ -132,10 +157,17 @@
 </header>
 
 <main>
-  <button class="tripbar" id="tripbar" style="display:none"></button>
-  <div class="monthbar" id="monthbar"></div>
-  <div id="view"></div>
+  <div id="timeView">
+    <button class="tripbar" id="tripbar" style="display:none"></button>
+    <div class="monthbar" id="monthbar"></div>
+    <div id="view"></div>
+  </div>
+  <div id="mileageView" style="display:none"></div>
 </main>
+<nav class="tabs">
+  <button data-view="time" class="on"><span>🗓</span>Time sheet</button>
+  <button data-view="mileage"><span>🚗</span>Mileage</button>
+</nav>
 
 <button class="fab" id="fab" aria-label="Add entry">+</button>
 
@@ -516,7 +548,7 @@ else (function(){
   function migrate(s){
     if(!s.settings.shortcuts) s.settings.shortcuts=defaultShortcuts();
     if(!s.settings.updated_at) s.settings.updated_at=0;
-    for(const m of s.months){ if(!m.updated_at) m.updated_at=0; if(!m.deleted) m.deleted=0; if(!Array.isArray(m.entries)) m.entries=[]; for(const e of m.entries){ if(!e.updated_at) e.updated_at=0; if(!e.deleted) e.deleted=0; } }
+    for(const m of s.months){ if(!m.updated_at) m.updated_at=0; if(!m.deleted) m.deleted=0; if(!Array.isArray(m.entries)) m.entries=[]; if(!m.mileage_status) m.mileage_status='none'; if(m.mileage_status_date===undefined) m.mileage_status_date=null; for(const e of m.entries){ if(!e.updated_at) e.updated_at=0; if(!e.deleted) e.deleted=0; } }
     return s;
   }
   function load(){ try{ const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.settings&&Array.isArray(s.months)) return migrate(s); }catch(e){} return migrate(defaults()); }
@@ -534,7 +566,7 @@ else (function(){
   function sortedMonths(){ return state.months.filter(m=>!m.deleted).sort((a,b)=>a.year-b.year||a.month-b.month); }
   function currentMonth(){ const m=state.months.find(m=>m.id===state.current); return m&&!m.deleted?m:null; }
   function findMonth(y,mo){ return state.months.find(m=>!m.deleted&&m.year===y&&m.month===mo); }
-  function newMonth(y,mo){ const m={id:uid(),year:y,month:mo,entries:[],updated_at:now(),deleted:0}; state.months.push(m); return m; }
+  function newMonth(y,mo){ const m={id:uid(),year:y,month:mo,entries:[],updated_at:now(),deleted:0,mileage_status:'none',mileage_status_date:null}; state.months.push(m); return m; }
   const isBlank=e=>!e.desc&&(e.hours==null||e.hours==='')&&(e.miles==null||e.miles===''||Number(e.miles)===0)&&!e.note;
   // add a blank row for every Monday–Friday in the month that doesn't already have an entry
   function fillWeekdays(m){
@@ -568,7 +600,43 @@ else (function(){
   function monthTotals(m){ let h=0,mi=0; for(const e of live(m)){ h+=Number(e.hours)||0; mi+=Number(e.miles)||0; } return {h,mi,rb:mi*(Number(state.settings.rate)||0)}; }
 
   // ---------- render ----------
-  function render(){
+  let view='time';
+  function render(){ renderTime(); if(view==='mileage') renderMileage(); }
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ view=b.dataset.view; document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+    $('#timeView').style.display=view==='time'?'':'none'; $('#mileageView').style.display=view==='mileage'?'':'none'; $('#fab').style.display=view==='time'?'':'none'; render(); window.scrollTo(0,0); });
+  const STATUS={none:'Not submitted',submitted:'Submitted',paid:'Paid'};
+  function siteFor(e){ const p=(state.settings.presets||[]).find(p=>Number(p.miles)===Number(e.miles)); return p?p.label:''; }
+  function renderMileage(){
+    const rate=Number(state.settings.rate)||0;
+    const ms=sortedMonths().reverse().map(m=>{ const trips=live(m).filter(e=>Number(e.miles)>0).sort((a,b)=>(a.date||'').localeCompare(b.date||'')); const mi=trips.reduce((a,e)=>a+Number(e.miles),0); return {m,trips,mi,amt:mi*rate}; });
+    let owed=0,submitted=0,paid=0; for(const x of ms){ if(x.m.mileage_status==='paid') paid+=x.amt; else if(x.m.mileage_status==='submitted') submitted+=x.amt; else owed+=x.amt; }
+    const fd=iso=>{ if(!iso) return ''; const [y,mo,d]=iso.split('-').map(Number); return `${mo}/${d}/${String(y).slice(2)}`; };
+    $('#mileageView').innerHTML=`
+      <div class="hero">
+        <div class="tot"><b>${money(owed+submitted)}</b><span>Owed to you</span></div>
+        <div class="tot"><b>${money(paid)}</b><span>Paid</span></div>
+      </div>
+      <p class="hint" style="margin:0 2px 12px">${money(owed)} not submitted yet · ${money(submitted)} submitted, waiting on payment · rate $${rate}/mi</p>
+      ${ms.length?ms.map(({m,trips,mi,amt})=>{ const st=m.mileage_status||'none'; const cls=st==='paid'?'paid':st==='submitted'?'sub':'';
+        return `<div class="mcard" data-m="${m.id}">
+          <div class="mh"><div><b>${MONTHS[m.month-1]} ${m.year}</b><div class="mdate">${trips.length} trip${trips.length===1?'':'s'} · ${fmtNum(mi)} mi</div></div>
+            <div class="amt">${money(amt)}<small><span class="pill ${cls}">${STATUS[st]}</span></small></div></div>
+          <div class="seg">
+            <button type="button" data-st="none" class="${st==='none'?'on':''}">Not submitted</button>
+            <button type="button" data-st="submitted" class="${st==='submitted'?'on sub':''}">Submitted</button>
+            <button type="button" data-st="paid" class="${st==='paid'?'on paid':''}">Paid</button>
+          </div>
+          <div class="mdate">${st==='submitted'&&m.mileage_status_date?'Submitted '+fd(m.mileage_status_date):st==='paid'&&m.mileage_status_date?'Paid '+fd(m.mileage_status_date):''}</div>
+          ${trips.length?`<details class="trips"><summary>Trips</summary>${trips.map(e=>{ const d=fmtDate(e.date||''); return `<div class="trip"><div class="t1">${e.date?d.md:'—'}</div><div>${esc(siteFor(e)||e.desc||'')}</div><div class="t3">${fmtNum(Number(e.miles))} mi <small>${money(Number(e.miles)*rate)}</small></div></div>`; }).join('')}</details>`:''}
+        </div>`; }).join(''):'<div class="empty">No months yet.</div>'}`;
+    document.querySelectorAll('#mileageView .seg button').forEach(b=>b.onclick=()=>{
+      const m=state.months.find(x=>x.id===b.closest('.mcard').dataset.m); if(!m) return;
+      const st=b.dataset.st; if(m.mileage_status===st) return;
+      let date=null; if(st!=='none'){ const d=prompt(`${STATUS[st]} on what date? (MM/DD/YYYY)`, new Date().toLocaleDateString('en-US')); if(d===null) return; const mm=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(d.trim()); if(mm){ const y=mm[3].length===2?2000+ +mm[3]:+mm[3]; date=`${y}-${String(mm[1]).padStart(2,'0')}-${String(mm[2]).padStart(2,'0')}`; } else date=todayIso(); }
+      m.mileage_status=st; m.mileage_status_date=date; m.updated_at=now(); save(); renderMileage();
+    });
+  }
+  function renderTime(){
     ensureCurrent();
     const m=currentMonth(); const ms=sortedMonths();
     $('#hdrName').textContent=`${state.settings.name||''}`.trim();
@@ -1006,7 +1074,7 @@ else (function(){
   function scheduleSync(){ if(!syncCfg.passcode) return; clearTimeout(syncTimer); syncTimer=setTimeout(()=>sync('change'),1200); }
   function pushBody(){
     return {
-      months: state.months.map(m=>({id:m.id,year:m.year,month:m.month,updated_at:m.updated_at||0,deleted:m.deleted?1:0})),
+      months: state.months.map(m=>({id:m.id,year:m.year,month:m.month,updated_at:m.updated_at||0,deleted:m.deleted?1:0,mileage_status:m.mileage_status||'none',mileage_status_date:m.mileage_status_date||null})),
       entries: state.months.flatMap(m=>m.entries.map(e=>({id:e.id,month_id:m.id,date:e.date||null,description:e.desc||'',hours:e.hours??null,miles:e.miles??null,note:e.note||'',updated_at:e.updated_at||0,deleted:e.deleted?1:0}))),
       settings: { json: JSON.stringify(state.settings), updated_at: state.settings.updated_at||0 }
     };
@@ -1015,8 +1083,9 @@ else (function(){
     let changed=false;
     for(const sm of srv.months||[]){
       let lm=state.months.find(x=>x.id===sm.id);
-      if(!lm){ state.months.push({id:sm.id,year:sm.year,month:sm.month,entries:[],updated_at:sm.updated_at||0,deleted:sm.deleted?1:0}); changed=true; }
-      else if((sm.updated_at||0)>(lm.updated_at||0)){ Object.assign(lm,{year:sm.year,month:sm.month,updated_at:sm.updated_at,deleted:sm.deleted?1:0}); changed=true; }
+      const sst=['none','submitted','paid'].includes(sm.mileage_status)?sm.mileage_status:'none';
+      if(!lm){ state.months.push({id:sm.id,year:sm.year,month:sm.month,entries:[],updated_at:sm.updated_at||0,deleted:sm.deleted?1:0,mileage_status:sst,mileage_status_date:sm.mileage_status_date||null}); changed=true; }
+      else if((sm.updated_at||0)>(lm.updated_at||0)){ Object.assign(lm,{year:sm.year,month:sm.month,updated_at:sm.updated_at,deleted:sm.deleted?1:0,mileage_status:sst,mileage_status_date:sm.mileage_status_date||null}); changed=true; }
     }
     for(const se of srv.entries||[]){
       let lm=state.months.find(x=>x.id===se.month_id); if(!lm) continue;
@@ -1032,7 +1101,7 @@ else (function(){
     const seen={};
     for(const m of sortedMonths().sort((a,b)=>(a.updated_at||0)-(b.updated_at||0))){
       const k=m.year+'-'+m.month;
-      if(seen[k]){ const keep=seen[k]; const t=now(); for(const e of m.entries){ keep.entries.push(e); e.updated_at=Math.max(e.updated_at||0,t); } m.entries=[]; m.deleted=1; m.updated_at=t; if(state.current===m.id) state.current=keep.id; changed=true; }
+      if(seen[k]){ const keep=seen[k]; const t=now(); for(const e of m.entries){ keep.entries.push(e); e.updated_at=Math.max(e.updated_at||0,t); } if((m.mileage_status||'none')!=='none'&&(keep.mileage_status||'none')==='none'){ keep.mileage_status=m.mileage_status; keep.mileage_status_date=m.mileage_status_date||null; keep.updated_at=t; } m.entries=[]; m.deleted=1; m.updated_at=t; if(state.current===m.id) state.current=keep.id; changed=true; }
       else seen[k]=m;
     }
     return changed;
