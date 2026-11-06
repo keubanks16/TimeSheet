@@ -145,6 +145,7 @@
   .trip .acts button{border:1px solid var(--line);background:var(--soft);border-radius:999px;padding:6px 10px;font-size:12px;font-weight:600;white-space:nowrap}
   .trip .acts button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .trip .acts button.del{color:var(--danger);background:none;border-color:transparent}
+  .updatebar{position:fixed;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:8;border:0;border-radius:12px;background:var(--good);color:#fff;font-weight:700;padding:13px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
   .toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;z-index:30;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
   .toast.show{opacity:1}
 </style>
@@ -288,6 +289,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<button class="updatebar" id="updateBar" style="display:none">New version available — tap to update</button>
 
 <script>
 // ==========================================================================
@@ -1286,6 +1288,22 @@ else (function(){
   render();
   setStatus(syncCfg.passcode?(syncCfg.lastSync?'ok':''):'off','');
   if(syncCfg.passcode) sync('load');
+
+  // ---------- self-update check (home-screen apps cache the page) ----------
+  const BUILD='__BUILD__'; // stamped with the commit id by the Pages workflow
+  let updateFound=false;
+  async function checkForUpdate(){
+    if(updateFound||!/^https?:/.test(location.protocol)) return;
+    try{
+      const r=await fetch(location.pathname+'?u='+Date.now(),{cache:'reload'}); if(!r.ok) return;
+      const m=/const BUILD='([^']*)'/.exec(await r.text()); if(!m) return;
+      if(m[1]!==BUILD&&m[1]!=='__BUILD__'){ updateFound=true; $('#updateBar').style.display=''; }
+    }catch(e){}
+  }
+  $('#updateBar').onclick=()=>{ $('#updateBar').textContent='Updating…'; location.reload(); };
+  checkForUpdate();
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') checkForUpdate(); });
+  setInterval(checkForUpdate,10*60*1000);
 })();
 </script>
 </body>
