@@ -530,7 +530,87 @@ ${merges.length?`<mergeCells count="${merges.length}">${merges.map(m=>`<mergeCel
 // ==XLSX-END==
 // ==========================================================================
 
-if (typeof module!=='undefined' && module.exports){ module.exports=XLSX; }
+
+// ==PDF-START==
+// Minimal PDF writer (Letter, Helvetica) — enough for tabular reports, no dependencies.
+const PDF = (() => {
+  const W = { // Helvetica / Helvetica-Bold glyph widths for chars 32..126 (per 1000 em)
+    F1: [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584],
+    F2: [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584]
+  };
+  const clean = t => String(t ?? '').replace(/[–—]/g, '-').replace(/[·•]/g, '-').replace(/[^\x20-\x7e]/g, '?');
+  const width = (t, font, size) => { const w = W[font]; let n = 0; for (const ch of clean(t)) { const c = ch.charCodeAt(0); n += (c >= 32 && c <= 126) ? w[c - 32] : 556; } return n * size / 1000; };
+  const escT = t => clean(t).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+
+  function Doc() {
+    const pages = []; let ops = null;
+    const api = {
+      page() { ops = []; pages.push(ops); return api; },
+      text(x, y, t, { font = 'F1', size = 10, align = 'left', color = '0 0 0' } = {}) {
+        let tx = x; const w = width(t, font, size);
+        if (align === 'right') tx = x - w; else if (align === 'center') tx = x - w / 2;
+        ops.push(`BT ${color} rg /${font} ${size} Tf ${tx.toFixed(2)} ${y.toFixed(2)} Td (${escT(t)}) Tj ET`); return api;
+      },
+      line(x1, y1, x2, y2, { w = 0.6, color = '0.75 0.75 0.75' } = {}) { ops.push(`${color} RG ${w} w ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`); return api; },
+      rect(x, y, w, h, color = '0.94 0.95 0.97') { ops.push(`${color} rg ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`); return api; },
+      width,
+      bytes() {
+        const objs = []; const add = s => { objs.push(s); return objs.length; };
+        add('<< /Type /Catalog /Pages 2 0 R >>'); add(''); // 2 = pages (filled below)
+        add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+        add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+        const pageIds = [];
+        for (const p of pages) {
+          const content = p.join('\n'); const cid = add(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+          pageIds.push(add(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${cid} 0 R >>`));
+        }
+        objs[1] = `<< /Type /Pages /Kids [${pageIds.map(i => i + ' 0 R').join(' ')}] /Count ${pageIds.length} >>`;
+        let out = '%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'; const offs = [];
+        objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+        const xref = out.length;
+        out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
+        out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+        const u8 = new Uint8Array(out.length); for (let i = 0; i < out.length; i++) u8[i] = out.charCodeAt(i) & 0xff; return u8;
+      }
+    };
+    return api;
+  }
+
+  const fit = (t, maxW, font, size) => { t = String(t); if (width(t, font, size) <= maxW) return t; while (t.length > 1 && width(t + '...', font, size) > maxW) t = t.slice(0, -1); return t + '...'; };
+  // Shared table renderer: cols = [{key,label,w,align}], rows = [{...}], returns Doc
+  function tableReport({ title, subtitle, lines = [], cols, rows, totalRow, footer }) {
+    const doc = Doc(); const L = 54, R = 612 - 54, TOP = 792 - 60; const rowH = 18;
+    let y;
+    const header = () => {
+      doc.page(); y = TOP;
+      doc.text(L, y, title, { font: 'F2', size: 16 }); y -= 18;
+      if (subtitle) { doc.text(L, y, subtitle, { size: 10, color: '0.35 0.35 0.35' }); y -= 14; }
+      for (const ln of lines) { doc.text(L, y, ln, { size: 10, color: '0.35 0.35 0.35' }); y -= 14; }
+      y -= 8;
+      doc.rect(L, y - 5, R - L, rowH, '0.93 0.94 0.96');
+      let x = L; for (const c of cols) { doc.text(c.align === 'right' ? x + c.w - 6 : x + 6, y, c.label, { font: 'F2', size: 9.5, align: c.align === 'right' ? 'right' : 'left' }); x += c.w; }
+      y -= rowH;
+    };
+    header();
+    for (const r of rows) {
+      if (y < 90) header();
+      let x = L; for (const c of cols) { doc.text(c.align === 'right' ? x + c.w - 6 : x + 6, y, fit(r[c.key] ?? '', c.w - 12, r._bold ? 'F2' : 'F1', 10), { size: 10, align: c.align === 'right' ? 'right' : 'left', font: r._bold ? 'F2' : 'F1' }); x += c.w; }
+      doc.line(L, y - 5, R, y - 5); y -= rowH;
+    }
+    if (totalRow) {
+      if (y < 90) header();
+      doc.line(L, y + 12, R, y + 12, { w: 1, color: '0.3 0.3 0.3' });
+      let x = L; for (const c of cols) { doc.text(c.align === 'right' ? x + c.w - 6 : x + 6, y, totalRow[c.key] ?? '', { font: 'F2', size: 10.5, align: c.align === 'right' ? 'right' : 'left' }); x += c.w; }
+      y -= rowH;
+    }
+    if (footer) doc.text(L, 40, footer, { size: 8.5, color: '0.5 0.5 0.5' });
+    return doc;
+  }
+  return { Doc, tableReport, width };
+})();
+// ==PDF-END==
+
+if (typeof module!=='undefined' && module.exports){ module.exports={XLSX,PDF}; }
 else (function(){
   const MONTHS=XLSX.MONTHS;
   const KEY='timesheet.v1';
@@ -620,7 +700,8 @@ else (function(){
         <div class="tot"><b>${money(owed+submitted)}</b><span>Owed to you${owedMs.length?' · '+mlist(owedMs):''}</span></div>
         <div class="tot"><b>${money(paid)}</b><span>${paidMs.length?'Paid · '+paidList(paidMs):'Paid'}</span></div>
       </div>
-      <p class="hint" style="margin:0 2px 12px">${money(owed)} not submitted yet · ${money(submitted)} submitted, waiting on payment · rate $${rate}/mi</p>
+      <p class="hint" style="margin:0 2px 10px">${money(owed)} not submitted yet · ${money(submitted)} submitted, waiting on payment · rate $${rate}/mi</p>
+      <div class="row" style="margin-bottom:12px"><button class="btn" id="mileageSummaryPdf" type="button">Summary PDF (all months)</button></div>
       ${ms.length?ms.map(({m,trips,mi,amt})=>{ const st=m.mileage_status||'none'; const cls=st==='paid'?'paid':st==='submitted'?'sub':'';
         return `<div class="mcard" data-m="${m.id}">
           <div class="mh"><div><b>${MONTHS[m.month-1]} ${m.year}</b><div class="mdate">${trips.length} trip${trips.length===1?'':'s'} · ${fmtNum(mi)} mi</div></div>
@@ -630,15 +711,48 @@ else (function(){
             <button type="button" data-st="submitted" class="${st==='submitted'?'on sub':''}">Submitted</button>
             <button type="button" data-st="paid" class="${st==='paid'?'on paid':''}">Paid</button>
           </div>
-          <div class="mdate">${st==='submitted'&&m.mileage_status_date?'Submitted '+fd(m.mileage_status_date):st==='paid'&&m.mileage_status_date?'Paid '+fd(m.mileage_status_date):''}</div>
-          ${trips.length?`<details class="trips"><summary>Trips</summary>${trips.map(e=>{ const d=fmtDate(e.date||''); return `<div class="trip"><div class="t1">${e.date?d.md:'—'}</div><div>${esc(siteFor(e)||e.desc||'')}</div><div class="t3">${fmtNum(Number(e.miles))} mi <small>${money(Number(e.miles)*rate)}</small></div></div>`; }).join('')}</details>`:''}
+          <div class="mdate">${st==='paid'&&m.mileage_status_date?'Paid '+fd(m.mileage_status_date):''}</div>
+          ${trips.length?`<div class="row" style="margin-top:6px"><button class="btn" data-pdf="${m.id}" type="button" style="padding:9px 12px">Mileage report PDF</button></div><details class="trips"><summary>Trips</summary>${trips.map(e=>{ const d=fmtDate(e.date||''); return `<div class="trip"><div class="t1">${e.date?d.md:'—'}</div><div>${esc(siteFor(e)||e.desc||'')}</div><div class="t3">${fmtNum(Number(e.miles))} mi <small>${money(Number(e.miles)*rate)}</small></div></div>`; }).join('')}</details>`:''}
         </div>`; }).join(''):'<div class="empty">No months yet.</div>'}`;
     document.querySelectorAll('#mileageView .seg button').forEach(b=>b.onclick=()=>{
       const m=state.months.find(x=>x.id===b.closest('.mcard').dataset.m); if(!m) return;
       const st=b.dataset.st; if(m.mileage_status===st) return;
-      let date=null; if(st!=='none'){ const d=prompt(`${STATUS[st]} on what date? (MM/DD/YYYY)`, new Date().toLocaleDateString('en-US')); if(d===null) return; const mm=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(d.trim()); if(mm){ const y=mm[3].length===2?2000+ +mm[3]:+mm[3]; date=`${y}-${String(mm[1]).padStart(2,'0')}-${String(mm[2]).padStart(2,'0')}`; } else date=todayIso(); }
+      let date=null; if(st==='paid'){ const d=prompt('Paid on what date? (MM/DD/YYYY)', new Date().toLocaleDateString('en-US')); if(d===null) return; const mm=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(d.trim()); if(mm){ const y=mm[3].length===2?2000+ +mm[3]:+mm[3]; date=`${y}-${String(mm[1]).padStart(2,'0')}-${String(mm[2]).padStart(2,'0')}`; } else date=todayIso(); }
+      else if(st==='submitted') date=todayIso();
       m.mileage_status=st; m.mileage_status_date=date; m.updated_at=now(); save(); renderMileage();
     });
+    document.querySelectorAll('#mileageView [data-pdf]').forEach(b=>b.onclick=()=>{ const x=ms.find(x=>x.m.id===b.dataset.pdf); if(x) mileageReportPdf(x); });
+    $('#mileageSummaryPdf').onclick=()=>mileageSummaryPdf(ms);
+  }
+  const fdLong=iso=>{ if(!iso) return ''; const [y,mo,d]=iso.split('-').map(Number); return `${mo}/${d}/${y}`; };
+  async function sharePdf(bytes,name){
+    const type='application/pdf'; const file=new File([bytes],name,{type});
+    if(navigator.canShare&&navigator.canShare({files:[file]})&&/iPhone|iPad|Android/i.test(navigator.userAgent)){
+      try{ await navigator.share({files:[file],title:name.replace(/\.pdf$/,'')}); return; }catch(e){ if(e&&e.name==='AbortError') return; }
+    }
+    download(bytes,name,type); toast('PDF ready');
+  }
+  function mileageReportPdf({m,trips,mi,amt}){
+    const rate=Number(state.settings.rate)||0; const name=(state.settings.name||'').trim();
+    const rows=trips.map(e=>({date:fdLong(e.date),site:siteFor(e)||'',desc:e.desc||'',miles:fmtNum(Number(e.miles)),amt:money(Number(e.miles)*rate)}));
+    const lines=[`Rate: $${rate.toFixed(2)} per mile`]; if(m.mileage_status==='paid'&&m.mileage_status_date) lines.push(`Paid on ${fdLong(m.mileage_status_date)}`);
+    const doc=PDF.tableReport({ title:`Mileage Report - ${MONTHS[m.month-1]} ${m.year}`, subtitle:name, lines,
+      cols:[{key:'date',label:'Date',w:70},{key:'site',label:'Site',w:90},{key:'desc',label:'Description',w:214},{key:'miles',label:'Miles',w:60,align:'right'},{key:'amt',label:'Amount',w:70,align:'right'}],
+      rows, totalRow:{date:'Total',site:'',desc:`${trips.length} trip${trips.length===1?'':'s'}`,miles:fmtNum(mi),amt:money(amt)},
+      footer:`Generated ${new Date().toLocaleDateString('en-US')} - Time Sheet` });
+    sharePdf(doc.bytes(),`Mileage Report - ${MONTHS[m.month-1]} ${m.year}.pdf`);
+  }
+  function mileageSummaryPdf(ms){
+    const rate=Number(state.settings.rate)||0; const name=(state.settings.name||'').trim();
+    const list=[...ms].reverse().filter(x=>x.trips.length);
+    let owed=0,paid=0;
+    const rows=list.map(({m,trips,mi,amt})=>{ const st=m.mileage_status||'none'; if(st==='paid') paid+=amt; else owed+=amt;
+      return {month:`${MONTHS[m.month-1]} ${m.year}`,trips:String(trips.length),miles:fmtNum(mi),amt:money(amt),status:st==='paid'?`Paid ${m.mileage_status_date?fdLong(m.mileage_status_date):''}`.trim():st==='submitted'?'Submitted':'Not submitted'}; });
+    const doc=PDF.tableReport({ title:'Mileage Summary', subtitle:name, lines:[`Rate: $${rate.toFixed(2)} per mile`,`Owed: ${money(owed)}    Paid: ${money(paid)}`],
+      cols:[{key:'month',label:'Month',w:120},{key:'trips',label:'Trips',w:50,align:'right'},{key:'miles',label:'Miles',w:70,align:'right'},{key:'amt',label:'Amount',w:90,align:'right'},{key:'status',label:'Status',w:174}],
+      rows, totalRow:{month:'Total',trips:String(list.reduce((a,x)=>a+x.trips.length,0)),miles:fmtNum(list.reduce((a,x)=>a+x.mi,0)),amt:money(owed+paid),status:''},
+      footer:`Generated ${new Date().toLocaleDateString('en-US')} - Time Sheet` });
+    sharePdf(doc.bytes(),'Mileage Summary.pdf');
   }
   function renderTime(){
     ensureCurrent();
